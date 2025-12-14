@@ -1,0 +1,32 @@
+# Configuration for Insurance Claim Timeline Retrieval System
+
+# LLM Configuration
+llm:
+    provider: "openai"
+    model: "gpt-4o-mini"
+    temperature: 0.0
+    embedding_model: "text-embedding-3-small"
+
+# Chunking Configuration
+chunking:
+    small_chunk_size: 128 # tokens
+    medium_chunk_size: 256 # tokens
+    large_chunk_size: 512 # tokens
+    chunk_overlap: 50 # tokens
+
+# Vector Store Configuration
+vector_store:
+    provider: "chromadb"
+    persist_directory: "./data/vector_store"
+    collection_summaries: "summaries"
+    collection_chunks: "chunks"
+
+# Data Directories
+data:
+    raw_dir: "./data/raw"
+    processed_dir: "./data/processed"
+
+# Summary Configuration
+summarization:
+    map_reduce: true
+    summary_instruction: "Summarize the following insurance claim document section, focusing on key events, dates, and important details."
