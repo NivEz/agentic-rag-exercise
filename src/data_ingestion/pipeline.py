@@ -1,92 +1,74 @@
-"""Main data ingestion pipeline for insurance claim documents."""
+"""Main data ingestion pipeline using llama_index MarkdownNodeParser."""
 
-import os
 import sys
 from pathlib import Path
-from typing import Dict, Optional
-from datetime import datetime
-import yaml
+from typing import Optional, List
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.data_ingestion.pdf_processor import PDFProcessor
-from src.data_ingestion.structure_identifier import StructureIdentifier
-from src.data_ingestion.chunker import HierarchicalChunker
-from src.data_ingestion.indexer import HierarchicalIndexer
-from src.utils.llm_utils import get_llm, get_embedding_model
+from llama_index.core.node_parser import MarkdownNodeParser
+from llama_index.core import Document
+from llama_index.core.schema import TextNode, BaseNode
 
 
 class IngestionPipeline:
-    """Main pipeline for ingesting insurance claim PDFs."""
+    """Main pipeline for ingesting PDFs using MarkdownNodeParser."""
     
-    def __init__(
-        self,
-        config_path: str,
-        persist_directory: str = "./data/vector_store",
-        collection_name: str = "insurance_claims"
-    ):
-        """
-        Initialize ingestion pipeline.
-        
-        Args:
-            config_path: Path to config YAML file (required)
-            persist_directory: Directory to persist vector store
-            collection_name: Name of ChromaDB collection
-            
-        Raises:
-            FileNotFoundError: If config file does not exist
-        """
-        # Load configuration
-        config_file = Path(config_path)
-        if not config_file.exists():
-            raise FileNotFoundError(f"Config file not found: {config_path}")
-        
-        with open(config_file, 'r') as f:
-            self.config = yaml.safe_load(f)
-        
-        # Initialize components
+    def __init__(self):
+        """Initialize ingestion pipeline."""
         self.pdf_processor = PDFProcessor()
-        self.structure_identifier = StructureIdentifier(llm=get_llm(
-            model=self.config.get('llm', {}).get('model'),
-            temperature=self.config.get('llm', {}).get('temperature')
-        ))
-        
-        # Initialize chunker with config values
-        chunking_config = self.config.get('chunking', {})
-        self.chunker = HierarchicalChunker(
-            small_chunk_size=chunking_config.get('small_chunk_size', 128),
-            medium_chunk_size=chunking_config.get('medium_chunk_size', 256),
-            large_chunk_size=chunking_config.get('large_chunk_size', 512),
-            chunk_overlap=chunking_config.get('chunk_overlap', 50)
-        )
-        
-        # Initialize indexer
-        vector_store_config = self.config.get('vector_store', {})
-        self.indexer = HierarchicalIndexer(
-            persist_directory=persist_directory or vector_store_config.get('persist_directory', './data/vector_store'),
-            collection_name=collection_name or vector_store_config.get('collection_chunks', 'chunks'),
-            embedding_model=get_embedding_model(
-                model=self.config.get('llm', {}).get('embedding_model', 'text-embedding-3-small')
-            )
-        )
-    
+        self.parser = MarkdownNodeParser()
+
+    def merge_tiny_nodes(self, nodes, min_chars=100):
+        """
+        Merges nodes smaller than `min_chars` into the NEXT node.
+        """
+        merged_nodes = []
+        buffer_node = None
+
+        for i, node in enumerate(nodes):
+            # If we have a buffer from the previous step, merge current node into it
+            if buffer_node:
+                # Combine text
+                new_text = buffer_node.get_content() + "\n\n" + node.get_content()
+                node.text = new_text
+                
+                # Combine metadata (optional: prefer the deeper/more specific header)
+                # usually the next node's metadata is fine to keep, or you can merge dicts
+                node.metadata = {**buffer_node.metadata, **node.metadata}
+
+                # Clear buffer
+                buffer_node = None
+
+            # Check if the (possibly merged) node is STILL too small
+            if len(node.get_content()) < min_chars:
+                # If this is the LAST node, we can't merge forward. 
+                # We must merge backward to the previous node in `merged_nodes`
+                if i == len(nodes) - 1 and merged_nodes:
+                    prev_node = merged_nodes[-1]
+                    prev_node.text += "\n\n" + node.get_content()
+                else:
+                    # Mark this node to be merged into the NEXT one
+                    buffer_node = node
+            else:
+                # Node is big enough, keep it
+                merged_nodes.append(node)
+                
+        return merged_nodes
+
     def process_pdf(
         self,
         pdf_path: str,
-        claim_id: Optional[str] = None,
-        document_metadata: Optional[Dict] = None
-    ) -> Dict:
+        claim_id: Optional[str] = None
+    ):
         """
-        Process a single PDF file through the ingestion pipeline.
+        Process a single PDF file: convert to markdown and parse into nodes.
         
         Args:
             pdf_path: Path to PDF file
             claim_id: Optional claim ID (if None, will be generated from filename)
-            document_metadata: Optional additional document metadata
-            
-        Returns:
-            Dictionary with processing results and statistics
         """
         pdf_path = Path(pdf_path)
         if not pdf_path.exists():
@@ -98,102 +80,45 @@ class IngestionPipeline:
         
         print(f"Processing PDF: {pdf_path.name}")
         print(f"Claim ID: {claim_id}")
-        
-        # Step 1: Extract text from PDF
-        print("Step 1: Extracting text from PDF...")
-        pdf_data = self.pdf_processor.extract_text(str(pdf_path))
-        print(f"  Extracted {len(pdf_data['text'])} characters from {pdf_data['metadata']['total_pages']} pages")
-        
-        # Step 2: Identify document structure
-        print("Step 2: Identifying document structure...")
-        structure = self.structure_identifier.identify_structure(
-            text=pdf_data['text'],
-            document_name=pdf_path.name
-        )
-        print(f"  Identified {len(structure.get('sections', []))} sections")
-        print(f"  Structure: {structure}")
+        print("-" * 50)
 
-        return
-        
-        # Step 3: Process each section with hierarchical chunking
-        print("Step 3: Creating hierarchical chunks...")
-        all_chunks = {"small": [], "medium": [], "large": []}
-        document_id = pdf_path.stem
-        
-        for section in structure.get('sections', []):
-            section_name = section.get('section_name', 'Unknown')
-            section_text = self.structure_identifier.extract_section_text(
-                pdf_data['text'],
-                section
-            )
-            
-            if not section_text.strip():
-                continue
-            
-            # Chunk the section
-            section_chunks = self.chunker.chunk_section(
-                section_text=section_text,
-                section_name=section_name,
-                claim_id=claim_id,
-                document_id=document_id,
-                section_metadata={
-                    "section_type": section.get('section_type', 'narrative'),
-                    "page_number": section.get('page_number', 1),
-                    "description": section.get('description', '')
-                }
-            )
-            
-            # Aggregate chunks
-            for level in ["small", "medium", "large"]:
-                all_chunks[level].extend(section_chunks[level])
-        
-        print(f"  Created {len(all_chunks['small'])} small, {len(all_chunks['medium'])} medium, {len(all_chunks['large'])} large chunks")
-        
-        # Step 4: Index chunks into vector store
-        print("Step 4: Indexing chunks into vector store...")
-        metadata = {
-            "file_name": pdf_path.name,
-            "file_path": str(pdf_path),
-            "processed_at": datetime.now().isoformat(),
-            "total_pages": pdf_data['metadata']['total_pages'],
-            **(document_metadata or {})
-        }
-        
-        counts = self.indexer.index_chunks(
-            chunks=all_chunks,
-            claim_id=claim_id,
-            document_id=document_id,
-            metadata=metadata
-        )
-        
-        print(f"  Indexed {counts['small']} small, {counts['medium']} medium, {counts['large']} large chunks")
-        
-        # Return processing results
-        return {
-            "claim_id": claim_id,
-            "document_id": document_id,
-            "file_name": pdf_path.name,
-            "pages": pdf_data['metadata']['total_pages'],
-            "sections": len(structure.get('sections', [])),
-            "chunks_created": {
-                "small": len(all_chunks['small']),
-                "medium": len(all_chunks['medium']),
-                "large": len(all_chunks['large'])
-            },
-            "chunks_indexed": counts,
-            "structure": structure
-        }
-    
-    def get_index_stats(self) -> Dict:
-        """Get statistics about the indexed data."""
-        return self.indexer.get_collection_stats()
+        # Step 1: Extract text from PDF and convert to Markdown
+        print("\nStep 1: Extracting text from PDF and converting to Markdown...")
+        md_text = self.pdf_processor.extract_to_markdown(str(pdf_path))
+        print(f"  Extracted {len(md_text)} characters")
+
+        # Step 2: Create Document and parse into nodes
+        print("\nStep 2: Parsing markdown into nodes...")
+        doc = Document(text=md_text)
+        nodes = self.parser.get_nodes_from_documents([doc])
+        print(f"  Created {len(nodes)} nodes")
+
+        # Step 2.5: Merge tiny nodes
+        print("\nStep 2.5: Merging tiny nodes...")
+        nodes = self.merge_tiny_nodes(nodes, min_chars=200)
+        print(f"  After merging: {len(nodes)} nodes")
+
+        # Step 3: Print nodes
+        print("\nStep 3: Printing nodes...")
+        print("=" * 50)
+        for i, node in enumerate(nodes, 1):
+            print(f"\nNode {i}:")
+            print(f"  Node ID: {node.node_id}")
+            print(f"  Node Metadata: {node.metadata}")
+            content = node.get_content()
+            print(f"  Content Preview: {content}")
+            print(f"  Content Length: {len(content)} characters")
+            print("-" * 50)
+
+        print(f"\n\nTotal nodes parsed: {len(nodes)}")
+        return nodes
 
 
 def main():
     """Main entry point for the ingestion pipeline."""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Insurance Claim Data Ingestion Pipeline")
+    parser = argparse.ArgumentParser(description="PDF Data Ingestion Pipeline using MarkdownNodeParser")
     parser.add_argument(
         "--pdf",
         type=str,
@@ -201,56 +126,22 @@ def main():
         help="Path to PDF file to process"
     )
     parser.add_argument(
-        "--config",
-        type=str,
-        default="config/config.yaml",
-        help="Path to configuration file (default: config/config.yaml)"
-    )
-    parser.add_argument(
         "--claim-id",
         type=str,
         help="Claim ID (optional, will use filename if not provided)"
-    )
-    parser.add_argument(
-        "--persist-dir",
-        type=str,
-        default="./data/vector_store",
-        help="Directory to persist vector store"
-    )
-    parser.add_argument(
-        "--collection",
-        type=str,
-        default="insurance_claims",
-        help="ChromaDB collection name"
     )
     
     args = parser.parse_args()
     
     # Initialize pipeline
-    pipeline = IngestionPipeline(
-        config_path=args.config,
-        persist_directory=args.persist_dir,
-        collection_name=args.collection
-    )
+    pipeline = IngestionPipeline()
     
     # Process PDF
-    result = pipeline.process_pdf(args.pdf, claim_id=args.claim_id)
+    pipeline.process_pdf(args.pdf, claim_id=args.claim_id)
+
     print("\n" + "="*50)
     print("Processing Complete!")
     print("="*50)
-    print(f"Claim ID: {result['claim_id']}")
-    print(f"Document: {result['file_name']}")
-    print(f"Pages: {result['pages']}")
-    print(f"Sections: {result['sections']}")
-    print(f"Chunks Created: {result['chunks_created']}")
-    print(f"Chunks Indexed: {result['chunks_indexed']}")
-    
-    # Print index statistics
-    stats = pipeline.get_index_stats()
-    print(f"\nIndex Statistics:")
-    print(f"  Total chunks in collection: {stats['total_chunks']}")
-    print(f"  Collection name: {stats['collection_name']}")
-    print(f"  Persist directory: {stats['persist_directory']}")
 
 
 if __name__ == "__main__":
