@@ -8,7 +8,8 @@ from typing import Optional, List, Dict
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.data_ingestion.pdf_processor import PDFProcessor
-from src.utils.config_loader import load_config, get_chunking_config
+from src.utils.config_loader import load_config, get_chunking_config, get_vector_store_config
+from src.utils.vector_store import ChromaDBManager
 from llama_index.core.node_parser import (
     MarkdownNodeParser,
     HierarchicalNodeParser,
@@ -29,6 +30,7 @@ class IngestionPipeline:
         # Load configuration
         self.config = load_config(config_path)
         self.chunking_config = get_chunking_config(self.config)
+        self.vector_store_config = get_vector_store_config(self.config)
         
         # Initialize HierarchicalNodeParser with chunk sizes (largest to smallest)
         # This creates a hierarchy: large -> medium -> small chunks
@@ -41,6 +43,13 @@ class IngestionPipeline:
         self.hierarchical_parser = HierarchicalNodeParser.from_defaults(
             chunk_sizes=chunk_sizes,
             chunk_overlap=self.chunking_config['chunk_overlap']
+        )
+        
+        # Initialize ChromaDB manager for chunks
+        self.chroma_manager = ChromaDBManager(
+            persist_directory=self.vector_store_config['persist_directory'],
+            collection_name=self.vector_store_config['collection_chunks'],
+            embedding_model_name=self.vector_store_config['embedding_model']
         )
 
     def merge_tiny_nodes(self, nodes, min_chars=100):
@@ -154,10 +163,32 @@ class IngestionPipeline:
 
         section_chunks = self.chunk_sections(section_nodes)
         print(f"  Created {len(section_chunks)} chunks")
+        
+        # Step 4: Add metadata to chunks (claim_id, source file, etc.)
+        print("\nStep 4: Adding metadata to chunks...")
+        for chunk in section_chunks:
+            if not hasattr(chunk, 'metadata') or chunk.metadata is None:
+                chunk.metadata = {}
+            chunk.metadata['claim_id'] = claim_id
+            chunk.metadata['source_file'] = str(pdf_path.name)
+            chunk.metadata['source_path'] = str(pdf_path)
+        
+        # Step 5: Embed chunks and save to ChromaDB
+        print("\nStep 5: Embedding chunks and saving to ChromaDB...")
+        try:
+            node_ids = self.chroma_manager.add_nodes(section_chunks)
+            print(f"  Successfully embedded and saved {len(node_ids)} chunks to ChromaDB")
+            print(f"  Collection: {self.vector_store_config['collection_chunks']}")
+            print(f"  Persist directory: {self.vector_store_config['persist_directory']}")
+        except Exception as e:
+            print(f"  Error saving chunks to ChromaDB: {e}")
+            raise
 
         return {
             'sections': section_nodes,
-            'chunks': section_chunks
+            'chunks': section_chunks,
+            'claim_id': claim_id,
+            'node_ids': node_ids
         }
 
 

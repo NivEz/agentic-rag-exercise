@@ -27,3 +27,15 @@ def get_chunking_config(config: Dict[str, Any]) -> Dict[str, int]:
         'chunk_overlap': chunking_config.get('chunk_overlap')
     }
 
+
+def get_vector_store_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract vector store configuration from config dict."""
+    vector_store_config = config.get('vector_store', {})
+    llm_config = config.get('llm', {})
+    return {
+        'provider': vector_store_config.get('provider'),
+        'persist_directory': vector_store_config.get('persist_directory'),
+        'collection_chunks': vector_store_config.get('collection_chunks'),
+        'collection_summaries': vector_store_config.get('collection_summaries'),
+        'embedding_model': llm_config.get('embedding_model')
+    }
