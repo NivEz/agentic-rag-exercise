@@ -13,12 +13,25 @@ from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from src.utils.config_loader import load_config
+from src.retrieval.auto_merging_retriever import AutoMergingRetriever
 
 
 class RetrievalStrategy(str, Enum):
     """Enumeration of retrieval strategies."""
     CHUNKS = "chunks"
     SUMMARIES = "summaries"
+
+
+# Initialize auto-merging retriever instance (lazy initialization)
+_auto_merging_retriever = None
+
+
+def _get_auto_merging_retriever():
+    """Get or create the auto-merging retriever instance."""
+    global _auto_merging_retriever
+    if _auto_merging_retriever is None:
+        _auto_merging_retriever = AutoMergingRetriever()
+    return _auto_merging_retriever
 
 
 @tool
@@ -35,9 +48,20 @@ def route_to_chunks(query: str) -> str:
         query: The user's query string
         
     Returns:
-        A message indicating the query is suitable for chunks retrieval
+        The answer from the auto-merging retriever query engine
     """
-    return f"The question '{query}' is suitable for the chunks needle agent (auto-merging retrieval)."
+    print("Query routed to chunks retrieval (auto-merging retrieval)")
+    print("-" * 60)
+    try:
+        # Get the auto-merging retriever and its query engine
+        retriever = _get_auto_merging_retriever()
+        query_engine = retriever.get_query_engine()
+        
+        # Query the engine and return the response
+        response = query_engine.query(query)
+        return str(response)
+    except Exception as e:
+        return f"Error querying auto-merging retriever: {str(e)}"
 
 
 @tool
@@ -56,6 +80,8 @@ def route_to_summaries(query: str) -> str:
     Returns:
         A message indicating summaries are not yet supported
     """
+    print("Query routed to summaries retrieval")
+    print("-" * 60)
     return "Summaries not supported yet"
 
 
@@ -167,7 +193,7 @@ Always use exactly one tool to route the query."""
                     output = tool.invoke(tool_args)
                 else:
                     output = tool.invoke({"query": query})
-                print(f"\nRouting decision: {output}")
+                print(f"\nLLM response: {output}")
                 
                 # Return appropriate strategy
                 if tool_name == 'route_to_chunks':
@@ -175,17 +201,5 @@ Always use exactly one tool to route the query."""
                 elif tool_name == 'route_to_summaries':
                     return RetrievalStrategy.SUMMARIES
         
-        # If no tool was called, try to determine from response content
-        output = response.content.lower() if hasattr(response, 'content') else ""
-        
-        # Determine strategy based on output
-        if "chunks" in output or "needle" in output:
-            print(f"\nRouting decision: {output}")
-            return RetrievalStrategy.CHUNKS
-        elif "summaries" in output or "not supported" in output:
-            print(f"\nRouting decision: {output}")
-            return RetrievalStrategy.SUMMARIES
-        else:
-            # Default to chunks if unclear
-            print(f"\nRouting decision unclear, defaulting to chunks. Output: {output}")
-            return RetrievalStrategy.CHUNKS
+        # If no tool was called, ask user to refine the question
+        print("\nUnable to determine routing strategy. Please refine your question to be more specific.")

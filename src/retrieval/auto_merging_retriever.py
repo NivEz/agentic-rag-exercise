@@ -69,7 +69,7 @@ class AutoMergingRetriever:
             self.auto_merging_retriever = LlamaAutoMergingRetriever(
                 self.base_retriever,
                 self.index.storage_context,
-                verbose=True,
+                verbose=False, # True for debugging
                 # Optional: similarity threshold for merging (default is usually fine)
                 # similarity_cutoff=0.7
             )
