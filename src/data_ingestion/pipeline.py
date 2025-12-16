@@ -2,13 +2,18 @@
 
 import sys
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.data_ingestion.pdf_processor import PDFProcessor
-from llama_index.core.node_parser import MarkdownNodeParser
+from src.utils.config_loader import load_config, get_chunking_config
+from llama_index.core.node_parser import (
+    MarkdownNodeParser,
+    HierarchicalNodeParser,
+    get_leaf_nodes
+)
 from llama_index.core import Document
 from llama_index.core.schema import TextNode, BaseNode
 
@@ -16,10 +21,27 @@ from llama_index.core.schema import TextNode, BaseNode
 class IngestionPipeline:
     """Main pipeline for ingesting PDFs using MarkdownNodeParser."""
     
-    def __init__(self):
+    def __init__(self, config_path: str = "config/config.yaml"):
         """Initialize ingestion pipeline."""
         self.pdf_processor = PDFProcessor()
         self.parser = MarkdownNodeParser()
+        
+        # Load configuration
+        self.config = load_config(config_path)
+        self.chunking_config = get_chunking_config(self.config)
+        
+        # Initialize HierarchicalNodeParser with chunk sizes (largest to smallest)
+        # This creates a hierarchy: large -> medium -> small chunks
+        chunk_sizes = [
+            self.chunking_config['large_chunk_size'],
+            self.chunking_config['medium_chunk_size'],
+            self.chunking_config['small_chunk_size']
+        ]
+
+        self.hierarchical_parser = HierarchicalNodeParser.from_defaults(
+            chunk_sizes=chunk_sizes,
+            chunk_overlap=self.chunking_config['chunk_overlap']
+        )
 
     def merge_tiny_nodes(self, nodes, min_chars=100):
         """
@@ -58,6 +80,35 @@ class IngestionPipeline:
                 
         return merged_nodes
 
+    def chunk_sections(self, sections: List[BaseNode]) -> List[BaseNode]:
+        """
+        Chunk a list of sections at multiple granularity levels using HierarchicalNodeParser.
+        """
+        section_chunks = []
+        for section in sections:
+            section_chunks.extend(self.chunk_section_multi_granularity(section))
+        return section_chunks
+
+    def chunk_section_multi_granularity(self, node: BaseNode) -> Dict[str, List[BaseNode]]:
+        """
+        Chunk a single section/node at multiple granularity levels using HierarchicalNodeParser.
+        
+        Returns a dictionary with keys: 'small', 'medium', 'large'
+        Each value is a list of chunks at that granularity level.
+        """
+        section_text = node.get_content()
+        
+        section_metadata = node.metadata.copy()
+        
+        # Create Document from section text
+        section_doc = Document(text=section_text, metadata=section_metadata)
+        
+        # Use HierarchicalNodeParser to create hierarchical chunks
+        hierarchical_nodes = self.hierarchical_parser.get_nodes_from_documents([section_doc])
+        # print(f"Hierarchical nodes: {hierarchical_nodes}")
+
+        return hierarchical_nodes
+
     def process_pdf(
         self,
         pdf_path: str,
@@ -90,28 +141,24 @@ class IngestionPipeline:
         # Step 2: Create Document and parse into nodes
         print("\nStep 2: Parsing markdown into nodes...")
         doc = Document(text=md_text)
-        nodes = self.parser.get_nodes_from_documents([doc])
-        print(f"  Created {len(nodes)} nodes")
+        section_nodes = self.parser.get_nodes_from_documents([doc])
+        print(f"  Created {len(section_nodes)} nodes")
 
         # Step 2.5: Merge tiny nodes
         print("\nStep 2.5: Merging tiny nodes...")
-        nodes = self.merge_tiny_nodes(nodes, min_chars=200)
-        print(f"  After merging: {len(nodes)} nodes")
+        section_nodes = self.merge_tiny_nodes(section_nodes, min_chars=200)
+        print(f"  After merging: {len(section_nodes)} nodes")
 
-        # Step 3: Print nodes
-        print("\nStep 3: Printing nodes...")
-        print("=" * 50)
-        for i, node in enumerate(nodes, 1):
-            print(f"\nNode {i}:")
-            print(f"  Node ID: {node.node_id}")
-            print(f"  Node Metadata: {node.metadata}")
-            content = node.get_content()
-            print(f"  Content Preview: {content}")
-            print(f"  Content Length: {len(content)} characters")
-            print("-" * 50)
+        # Step 3: Chunk each section at multiple granularity levels
+        print("\nStep 3: Chunking sections at multiple granularity levels...")
 
-        print(f"\n\nTotal nodes parsed: {len(nodes)}")
-        return nodes
+        section_chunks = self.chunk_sections(section_nodes)
+        print(f"  Created {len(section_chunks)} chunks")
+
+        return {
+            'sections': section_nodes,
+            'chunks': section_chunks
+        }
 
 
 def main():
