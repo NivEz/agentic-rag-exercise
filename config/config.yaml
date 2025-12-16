@@ -30,3 +30,8 @@ data:
 summarization:
     map_reduce: true
     summary_instruction: "Summarize the following insurance claim document section, focusing on key events, dates, and important details."
+
+# Retrieval Configuration
+retrieval:
+    default_top_k: 5
+    similarity_top_k_multiplier: 4  # Multiply top_k by this to retrieve more leaf nodes for merging

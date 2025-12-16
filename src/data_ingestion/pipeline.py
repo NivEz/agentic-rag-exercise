@@ -195,7 +195,7 @@ class IngestionPipeline:
 def main():
     """Main entry point for the ingestion pipeline."""
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="PDF Data Ingestion Pipeline using MarkdownNodeParser")
     parser.add_argument(
         "--pdf",
