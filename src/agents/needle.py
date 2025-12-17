@@ -52,7 +52,6 @@ class NeedleAgent:
         )
         
         # Create the retrieve_context tool using closure to access self.retriever
-        # @tool(response_format="content_and_artifact")
         @tool
         def retrieve_context(query: str) -> str:
             """Retrieve relevant context from documents using auto-merging retrieval."""
@@ -99,7 +98,6 @@ Always use the retrieve_context tool before answering any question."""
             The agent's answer to the query
         """
         # Invoke the agent with the user query
-        # response = self.agent.invoke({"messages": [{"role": "user", "content": query}]})
         for event in self.agent.stream(
             {"messages": [{"role": "user", "content": query}]},
             stream_mode="values",
