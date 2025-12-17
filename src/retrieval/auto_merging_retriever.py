@@ -60,7 +60,7 @@ class AutoMergingRetriever:
         
         # Create base vector retriever (retrieves leaf nodes)
         # Retrieve more initially to allow for merging
-        self.base_retriever = self.index.as_retriever(similarity_top_k=20)
+        self.base_retriever = self.index.as_retriever()
         
         # Create Auto-Merging Retriever
         # It will retrieve leaf nodes and merge them into parent nodes when appropriate
@@ -102,7 +102,7 @@ class AutoMergingRetriever:
         # Set similarity_top_k for the base retriever
         # We retrieve more leaf nodes initially to allow for merging opportunities
         # The Auto-Merging Retriever will then merge related leaf nodes into parents
-        self.base_retriever.similarity_top_k = max(top_k * 4, 20)  # Retrieve more to allow merging
+        self.base_retriever.similarity_top_k = top_k
         
         # Retrieve nodes (Auto-Merging Retriever will merge leaf nodes into parents)
         nodes = self.auto_merging_retriever.retrieve(query)
