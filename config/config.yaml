@@ -29,7 +29,7 @@ data:
 # Summary Configuration
 summarization:
     map_reduce: true
-    summary_instruction: "Summarize the following insurance claim document section, focusing on key events, dates, and important details."
+    summary_instruction: "Summarize this text with a focus on: 1. Key entities (people, organizations, locations). 2. A timeline of events (dates and actions). 3. Main ideas. Output a concise summary paragraph."
 
 # Retrieval Configuration
 retrieval:

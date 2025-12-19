@@ -68,48 +68,61 @@ def get_vector_store_index(
     # Load existing storage context if it exists, otherwise create new one
     # This automatically handles JSON persistence for docstore
     persist_path = Path(persist_directory)
+    storage_context = None
+    
+    # Try to load existing storage context if persistence files exist
     if persist_path.exists() and (persist_path / "docstore.json").exists():
-        # Load existing storage context (this loads docstore from JSON)
-        existing_context = StorageContext.from_defaults(
-            persist_dir=persist_directory
-        )
-        
-        # Get the loaded docstore and ensure it's fully initialized
-        docstore = existing_context.docstore
-        index_store = existing_context.index_store
-        graph_store = existing_context.graph_store
-        
-        # Verify docstore has nodes and test access
-        if hasattr(docstore, 'docs'):
-            print(f"Docstore has {len(docstore.docs)} documents")
-            # Test accessing a few nodes to ensure they're loaded
-            test_ids = list(docstore.docs.keys())[:5]
-            for doc_id in test_ids:
-                try:
-                    node = docstore.get_document(doc_id)
-                    print(f"Successfully loaded node: {doc_id}")
-                except Exception as e:
-                    print(f"Error loading node {doc_id}: {e}")
-        
-        # Create new storage context with our vector store and the loaded docstore
-        # Important: Pass persist_dir to ensure docstore persistence is maintained
+        try:
+            # Load existing storage context (this loads docstore from JSON)
+            existing_context = StorageContext.from_defaults(
+                persist_dir=persist_directory
+            )
+            
+            # Get the loaded docstore and ensure it's fully initialized
+            docstore = existing_context.docstore
+            index_store = existing_context.index_store
+            graph_store = existing_context.graph_store
+            
+            # Verify docstore has nodes and test access
+            if hasattr(docstore, 'docs'):
+                print(f"Docstore has {len(docstore.docs)} documents")
+                # Test accessing a few nodes to ensure they're loaded
+                test_ids = list(docstore.docs.keys())[:5]
+                for doc_id in test_ids:
+                    try:
+                        node = docstore.get_document(doc_id)
+                        print(f"Successfully loaded node: {doc_id}")
+                    except Exception as e:
+                        print(f"Error loading node {doc_id}: {e}")
+            
+            # Create new storage context with our vector store and the loaded docstore
+            # Important: Pass persist_dir to ensure docstore persistence is maintained
+            storage_context = StorageContext.from_defaults(
+                vector_store=vector_store,
+                docstore=docstore,
+                index_store=index_store,
+                graph_store=graph_store,
+                persist_dir=persist_directory  # Keep persist_dir for future saves
+            )
+            
+            # Verify the new context has access to the docstore
+            if hasattr(storage_context.docstore, 'docs'):
+                print(f"New storage context docstore has {len(storage_context.docstore.docs)} documents")
+        except (FileNotFoundError, Exception) as e:
+            # If loading fails (e.g., files are corrupted or incomplete), create new context
+            print(f"Warning: Could not load existing storage context: {e}")
+            print("Creating new storage context...")
+            storage_context = None
+    
+    # Create new storage context if we didn't load one successfully
+    if storage_context is None:
+        # Create new storage context without persist_dir to avoid loading non-existent files
+        # We'll persist manually later when needed
         storage_context = StorageContext.from_defaults(
-            vector_store=vector_store,
-            docstore=docstore,
-            index_store=index_store,
-            graph_store=graph_store,
-            persist_dir=persist_directory  # Keep persist_dir for future saves
+            vector_store=vector_store
         )
-        
-        # Verify the new context has access to the docstore
-        if hasattr(storage_context.docstore, 'docs'):
-            print(f"New storage context docstore has {len(storage_context.docstore.docs)} documents")
-    else:
-        # Create new storage context
-        storage_context = StorageContext.from_defaults(
-            vector_store=vector_store,
-            persist_dir=persist_directory  # Set persist_dir for future saves
-        )
+        # Ensure persist directory exists for future persistence
+        persist_path.mkdir(parents=True, exist_ok=True)
     
     # Create index with embedding model
     # Use VectorStoreIndex.from_vector_store to create index from ChromaDB vector store
@@ -210,7 +223,7 @@ class ChromaDBManager:
         self.index.storage_context.persist(persist_dir=self.persist_directory)
         
         # Return node IDs from original nodes
-        return [node.node_id for node in nodes]
+        return [node.node_id for node in leaf_nodes]
     
     def add_documents(self, documents: List[BaseNode]) -> List[str]:
         """

@@ -39,3 +39,23 @@ def get_vector_store_config(config: Dict[str, Any]) -> Dict[str, Any]:
         'collection_summaries': vector_store_config.get('collection_summaries'),
         'embedding_model': llm_config.get('embedding_model')
     }
+
+
+def get_summarization_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract summarization configuration from config dict."""
+    summarization_config = config.get('summarization', {})
+    return {
+        'map_reduce': summarization_config.get('map_reduce', True),
+        'summary_instruction': summarization_config.get('summary_instruction')
+    }
+
+
+def get_llm_config(config: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract LLM configuration from config dict."""
+    llm_config = config.get('llm', {})
+    return {
+        'provider': llm_config.get('provider', 'openai'),
+        'model': llm_config.get('model', 'gpt-4o-mini'),
+        'temperature': llm_config.get('temperature', 0.0),
+        'embedding_model': llm_config.get('embedding_model', 'text-embedding-3-small')
+    }
