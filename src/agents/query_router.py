@@ -13,6 +13,7 @@ from langchain.agents import create_agent
 
 from src.utils.config_loader import load_config
 from src.agents.needle import NeedleAgent
+from src.agents.summary import SummaryAgent
 
 
 class RetrievalStrategy(str, Enum):
@@ -40,6 +41,9 @@ class QueryRouterAgent:
         
         # Initialize NeedleAgent instance
         self.needle_agent = NeedleAgent(config_path=config_path)
+        
+        # Initialize SummaryAgent instance
+        self.summary_agent = SummaryAgent(config_path=config_path)
         
         # Initialize LLM for the agent
         import os
@@ -82,11 +86,11 @@ class QueryRouterAgent:
             except Exception as e:
                 return f"Error querying needle agent: {str(e)}"
         
-        # Create the route_to_summaries tool
+        # Create the route_to_summaries tool using closure to access self.summary_agent
         @tool
         def route_to_summaries(query: str) -> str:
             """
-            Route the query to the summaries vector store.
+            Route the query to the summary agent using summaries retrieval.
             Use this when the query requires:
             - High-level overview or summary information
             - General understanding of documents
@@ -97,11 +101,15 @@ class QueryRouterAgent:
                 query: The user's query string
                 
             Returns:
-                A message indicating summaries are not yet supported
+                The answer from the summary agent
             """
-            print("Query routed to summaries retrieval")
+            print("Query routed to summary agent (summaries retrieval)")
             print("-" * 60)
-            return "Summaries not supported yet"
+            try:
+                response = self.summary_agent.answer(query)
+                return response
+            except Exception as e:
+                return f"Error querying summary agent: {str(e)}"
         
         # Define tools for routing
         self.tools = [route_to_needle, route_to_summaries]
