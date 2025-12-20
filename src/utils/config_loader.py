@@ -46,7 +46,8 @@ def get_summarization_config(config: Dict[str, Any]) -> Dict[str, Any]:
     summarization_config = config.get('summarization', {})
     return {
         'map_reduce': summarization_config.get('map_reduce', True),
-        'summary_instruction': summarization_config.get('summary_instruction')
+        'chunk_size': summarization_config.get('chunk_size', 1024),
+        'chunk_overlap': summarization_config.get('chunk_overlap', 200)
     }
 
 

@@ -1,4 +1,4 @@
-"""Separate pipeline for generating summaries from existing chunks in ChromaDB."""
+"""Separate pipeline for generating summaries directly from PDFs using SentenceSplitter."""
 
 import sys
 from pathlib import Path
@@ -10,17 +10,17 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.data_ingestion.summary_generator import SummaryGenerator
+from src.data_ingestion.pdf_processor import PDFProcessor
 from src.utils.config_loader import load_config, get_vector_store_config, get_summarization_config, get_llm_config
 from src.utils.vector_store import ChromaDBManager
-from llama_index.core import Settings
-from llama_index.core.node_parser import get_leaf_nodes
+from llama_index.core import Settings, Document
 from llama_index.llms.openai import OpenAI
 
 load_dotenv()
 
 
 class SummaryPipeline:
-    """Pipeline for generating summaries from existing chunks in ChromaDB."""
+    """Pipeline for generating summaries directly from PDFs using SentenceSplitter."""
     
     def __init__(self, config_path: str = "config/config.yaml"):
         """Initialize summary pipeline."""
@@ -41,12 +41,8 @@ class SummaryPipeline:
             api_key=openai_api_key
         )
         
-        # Initialize ChromaDB manager for chunks (read-only)
-        self.chunks_manager = ChromaDBManager(
-            persist_directory=self.vector_store_config['persist_directory'],
-            collection_name=self.vector_store_config['collection_chunks'],
-            embedding_model_name=self.vector_store_config['embedding_model']
-        )
+        # Initialize PDF processor
+        self.pdf_processor = PDFProcessor()
         
         # Initialize ChromaDB manager for summaries
         self.summary_manager = ChromaDBManager(
@@ -57,100 +53,76 @@ class SummaryPipeline:
         
         # Initialize summary generator
         self.summary_generator = SummaryGenerator(
-            summary_instruction=self.summarization_config['summary_instruction']
+            chunk_size=self.summarization_config['chunk_size'],
+            chunk_overlap=self.summarization_config['chunk_overlap']
         )
     
-    def get_chunks_by_claim_id(self, claim_id: Optional[str] = None) -> List:
-        """
-        Retrieve chunks from ChromaDB, optionally filtered by claim_id.
-        
-        Args:
-            claim_id: Optional claim ID to filter chunks. If None, retrieves all chunks.
-            
-        Returns:
-            List of chunk nodes
-        """
-        print(f"\nRetrieving chunks from ChromaDB...")
-        
-        try:
-            # Access the docstore from the index
-            docstore = self.chunks_manager.index.storage_context.docstore
-            
-            if not hasattr(docstore, 'docs') or not docstore.docs:
-                print("  No chunks found in ChromaDB.")
-                return []
-            
-            # Get all nodes from docstore
-            all_node_ids = list(docstore.docs.keys())
-            all_chunks = [docstore.get_document(node_id) for node_id in all_node_ids]
-            
-            # Filter by claim_id if provided
-            if claim_id:
-                filtered_chunks = [
-                    chunk for chunk in all_chunks 
-                    if hasattr(chunk, 'metadata') 
-                    and chunk.metadata 
-                    and chunk.metadata.get('claim_id') == claim_id
-                ]
-                print(f"  Found {len(filtered_chunks)} chunks for claim_id: {claim_id}")
-                return filtered_chunks
-            else:
-                print(f"  Found {len(all_chunks)} total chunks")
-                return all_chunks
-                
-        except Exception as e:
-            print(f"  Error retrieving chunks: {e}")
-            raise
-    
-    def generate_summaries_for_chunks(
+    def generate_summaries_for_pdf(
         self,
+        pdf_path: str,
         claim_id: Optional[str] = None
     ):
         """
-        Generate summaries for chunks in ChromaDB.
+        Generate summaries for a PDF using MapReduce with SentenceSplitter.
         
         Args:
-            claim_id: Optional claim ID to filter chunks. If None, processes all chunks.
+            pdf_path: Path to PDF file
+            claim_id: Optional claim ID (if None, will use filename)
         """
+        pdf_path = Path(pdf_path)
+        if not pdf_path.exists():
+            raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+        
+        # Generate claim_id from filename if not provided
+        if claim_id is None:
+            claim_id = pdf_path.stem
+        
         print("=" * 60)
-        print("Summary Generation Pipeline")
+        print("Summary Generation Pipeline (MapReduce)")
         print("=" * 60)
-        print(f"Claim ID filter: {claim_id if claim_id else 'None (all chunks)'}")
+        print(f"PDF: {pdf_path.name}")
+        print(f"Claim ID: {claim_id}")
         print("-" * 60)
         
-        # Step 1: Retrieve chunks
-        print("\nStep 1: Retrieving chunks from ChromaDB...")
-        chunks = self.get_chunks_by_claim_id(claim_id)
+        # Step 1: Extract text from PDF
+        print("\nStep 1: Extracting text from PDF...")
+        md_text = self.pdf_processor.extract_to_markdown(str(pdf_path))
+        print(f"  Extracted {len(md_text)} characters")
         
-        if not chunks:
-            print("No chunks found. Please run the ingestion pipeline first.")
-            return {
-                'chunks_processed': 0,
-                'summaries_generated': 0,
-                'summary_ids': []
+        # Step 2: Create document with metadata
+        print("\nStep 2: Creating document...")
+        doc = Document(
+            text=md_text,
+            metadata={
+                'claim_id': claim_id,
+                'source_file': pdf_path.name,
+                'source_path': str(pdf_path)
             }
+        )
         
-        # Step 2: Get leaf nodes (smallest chunks for summarization)
-        print("\nStep 2: Extracting leaf nodes for summarization...")
-        leaf_chunks = get_leaf_nodes(chunks)
-        print(f"  Found {len(leaf_chunks)} leaf chunks out of {len(chunks)} total chunks")
+        # Step 3: Generate summaries using MapReduce
+        print(f"\nStep 3: Generating summaries (MapReduce)...")
+        print(f"  Chunk size: {self.summarization_config['chunk_size']} tokens")
+        print(f"  Chunk overlap: {self.summarization_config['chunk_overlap']} tokens")
         
-        if not leaf_chunks:
-            print("  No leaf chunks found for summarization.")
-            return {
-                'chunks_processed': len(chunks),
-                'summaries_generated': 0,
-                'summary_ids': []
-            }
-        
-        # Step 3: Generate summaries
-        print("\nStep 3: Generating summaries...")
         try:
-            summary_nodes = self.summary_generator.generate_summaries(
-                leaf_chunks, 
+            # Use SentenceSplitter to chunk and summarize
+            summary_result = self.summary_generator.generate_summaries_from_document(
+                doc,
                 show_progress=True
             )
-            print(f"  Successfully generated {len(summary_nodes)} summaries")
+            
+            # Combine all summaries
+            all_summaries = (
+                summary_result['chunk'] + 
+                summary_result['document']
+            )
+            
+            print(f"  Generated {len(summary_result['chunk'])} chunk-level summaries")
+            print(f"  Generated {len(summary_result['document'])} document-level summaries")
+            print(f"  Total: {len(all_summaries)} summaries")
+            
+            summary_nodes = all_summaries
             
             # Validate summaries
             summaries_with_errors = [s for s in summary_nodes if s.metadata.get('summary_error')]
@@ -176,36 +148,16 @@ class SummaryPipeline:
         print("=" * 60)
         
         return {
-            'chunks_processed': len(chunks),
-            'leaf_chunks': len(leaf_chunks),
             'summaries_generated': len(summary_nodes),
-            'summary_ids': summary_ids
+            'summary_ids': summary_ids,
+            'claim_id': claim_id
         }
     
     def print_summary_stats(self):
-        """Print statistics about chunks and summaries in ChromaDB."""
+        """Print statistics about summaries in ChromaDB."""
         print("=" * 60)
         print("ChromaDB Summary Statistics")
         print("=" * 60)
-        
-        # Get chunk count
-        try:
-            chunk_docstore = self.chunks_manager.index.storage_context.docstore
-            chunk_count = len(chunk_docstore.docs) if hasattr(chunk_docstore, 'docs') else 0
-            
-            # Count leaf chunks
-            if chunk_count > 0:
-                all_chunks = [chunk_docstore.get_document(node_id) for node_id in chunk_docstore.docs.keys()]
-                leaf_chunks = get_leaf_nodes(all_chunks)
-                leaf_count = len(leaf_chunks)
-            else:
-                leaf_count = 0
-            
-            print(f"\nChunks Collection:")
-            print(f"  Total chunks: {chunk_count}")
-            print(f"  Leaf chunks: {leaf_count}")
-        except Exception as e:
-            print(f"\nError accessing chunks: {e}")
         
         # Get summary count from ChromaDB collection directly
         try:
@@ -223,10 +175,20 @@ class SummaryPipeline:
                 # Get all summaries metadata
                 all_summaries = summary_collection.get(include=['metadatas'])
                 claim_ids = set()
-                for metadata in all_summaries['metadatas']:
-                    if metadata and 'claim_id' in metadata:
-                        claim_ids.add(metadata['claim_id'])
+                chunk_count = 0
+                doc_count = 0
                 
+                for metadata in all_summaries['metadatas']:
+                    if metadata:
+                        if 'claim_id' in metadata:
+                            claim_ids.add(metadata['claim_id'])
+                        if metadata.get('summary_level') == 'chunk':
+                            chunk_count += 1
+                        elif metadata.get('summary_level') == 'document':
+                            doc_count += 1
+                
+                print(f"  Chunk summaries: {chunk_count}")
+                print(f"  Document summaries: {doc_count}")
                 print(f"  Unique claim IDs: {len(claim_ids)}")
                 if claim_ids:
                     print(f"  Claim IDs: {', '.join(sorted(claim_ids))}")
@@ -240,16 +202,21 @@ def main():
     """Main entry point for the summary pipeline."""
     import argparse
     
-    parser = argparse.ArgumentParser(description="Summary Generation Pipeline - Generate summaries from existing chunks")
+    parser = argparse.ArgumentParser(description="Summary Generation Pipeline - Generate summaries from PDFs using MapReduce")
+    parser.add_argument(
+        "--pdf",
+        type=str,
+        help="Path to PDF file to process"
+    )
     parser.add_argument(
         "--claim-id",
         type=str,
-        help="Claim ID to filter chunks (optional, processes all chunks if not provided)"
+        help="Claim ID (optional, will use filename if not provided)"
     )
     parser.add_argument(
         "--stats",
         action="store_true",
-        help="Print statistics about chunks and summaries without generating new ones"
+        help="Print statistics about summaries without generating new ones"
     )
     
     args = parser.parse_args()
@@ -262,13 +229,18 @@ def main():
         pipeline.print_summary_stats()
         return
     
-    # Otherwise, generate summaries
-    result = pipeline.generate_summaries_for_chunks(
+    # Otherwise, require PDF argument
+    if not args.pdf:
+        parser.error("--pdf is required unless --stats is used")
+    
+    # Generate summaries
+    result = pipeline.generate_summaries_for_pdf(
+        pdf_path=args.pdf,
         claim_id=args.claim_id
     )
     
     print(f"\nResults:")
-    print(f"  Chunks processed: {result.get('chunks_processed', 0)}")
+    print(f"  Claim ID: {result.get('claim_id')}")
     print(f"  Summaries generated: {result.get('summaries_generated', 0)}")
 
 

@@ -29,7 +29,8 @@ data:
 # Summary Configuration
 summarization:
     map_reduce: true
-    summary_instruction: "Summarize this text with a focus on: 1. Key entities (people, organizations, locations). 2. A timeline of events (dates and actions). 3. Main ideas. Output a concise summary paragraph."
+    chunk_size: 1024 # Chunk size for SentenceSplitter (in tokens)
+    chunk_overlap: 200 # Overlap between chunks
 
 # Retrieval Configuration
 retrieval:
