@@ -83,30 +83,23 @@ class SummaryGenerator:
     def generate_summary_from_summaries(
         self,
         summaries: List[str],
-        level: str = "section",
         metadata: Optional[Dict] = None
     ) -> TextNode:
         """
-        Generate a higher-level summary from a list of lower-level summaries.
+        Generate a document-level summary from a list of chunk summaries.
         
         Args:
             summaries: List of summary texts to combine
-            level: Level of summary ('section' or 'document')
             metadata: Metadata to attach to the summary node
             
         Returns:
-            TextNode containing the higher-level summary
+            TextNode containing the document-level summary
         """
         # Combine summaries into one text
         combined_text = "\n\n".join(summaries)
         
         # Create prompt for summarization
-        level_instruction = {
-            "section": "Summarize the following section summaries into a cohesive section overview",
-            "document": "Summarize the following summaries into a comprehensive document overview"
-        }.get(level, "Summarize the following summaries")
-        
-        prompt = f"{level_instruction}. {self.SUMMARY_INSTRUCTION}\n\nSummaries to combine:\n{combined_text}"
+        prompt = f"Summarize the following summaries into a comprehensive document overview. {self.SUMMARY_INSTRUCTION}\n\nSummaries to combine:\n{combined_text}"
         
         # Use LlamaIndex Settings.llm to generate summary
         llm = Settings.llm
@@ -123,7 +116,7 @@ class SummaryGenerator:
             metadata={
                 **(metadata or {}),
                 'is_summary': True,
-                'summary_level': level
+                'summary_level': 'document'
             }
         )
         
@@ -181,10 +174,14 @@ class SummaryGenerator:
             summary_texts = [s.get_content() for s in chunk_summaries]
             
             try:
+                # Prepare metadata with document_id
+                doc_metadata = {
+                    **document.metadata,
+                    'document_id': document.doc_id
+                }
                 doc_summary = self.generate_summary_from_summaries(
                     summary_texts,
-                    level="document",
-                    metadata=document.metadata
+                    metadata=doc_metadata
                 )
                 result['document'].append(doc_summary)
                 print(f"    Created document summary")

@@ -1,153 +1,67 @@
-"""Main data ingestion pipeline using llama_index MarkdownNodeParser."""
+"""Main data ingestion pipeline orchestrator that coordinates summary and hierarchical pipelines."""
 
 import sys
 from pathlib import Path
-from typing import Optional, List, Dict
+from typing import Optional, Dict
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.data_ingestion.pdf_processor import PDFProcessor
-from src.utils.config_loader import load_config, get_chunking_config, get_vector_store_config, get_llm_config
-from src.utils.vector_store import ChromaDBManager
-from llama_index.core.node_parser import (
-    MarkdownNodeParser,
-    HierarchicalNodeParser,
-    get_leaf_nodes
-)
-from llama_index.core import Document, Settings
-from llama_index.core.schema import TextNode, BaseNode
-from llama_index.llms.openai import OpenAI
-import os
-from dotenv import load_dotenv
-
-load_dotenv()
+from src.data_ingestion.summary_pipeline import SummaryPipeline
+from src.data_ingestion.hierarchical_pipeline import HierarchicalPipeline
+from src.utils.config_loader import load_config
 
 
 class IngestionPipeline:
-    """Main pipeline for ingesting PDFs using MarkdownNodeParser."""
+    """Main orchestrator pipeline that coordinates summary and hierarchical chunking pipelines."""
     
     def __init__(self, config_path: str = "config/config.yaml"):
-        """Initialize ingestion pipeline."""
-        self.pdf_processor = PDFProcessor()
-        self.parser = MarkdownNodeParser()
+        """
+        Initialize ingestion pipeline orchestrator.
         
+        Flow:
+        1. Initialize
+        2. Process PDF (extract text)
+        3. Execute Hierarchical pipeline
+        4. Execute Summary pipeline
+        """
         # Load configuration
         self.config = load_config(config_path)
-        self.chunking_config = get_chunking_config(self.config)
-        self.vector_store_config = get_vector_store_config(self.config)
-        self.llm_config = get_llm_config(self.config)
         
-        # Initialize LLM in Settings for use across the pipeline
-        openai_api_key = os.getenv("OPENAI_API_KEY")
-        if not openai_api_key:
-            raise ValueError("OPENAI_API_KEY not found in environment variables")
+        # Initialize PDF processor for text extraction
+        self.pdf_processor = PDFProcessor()
         
-        Settings.llm = OpenAI(
-            model=self.llm_config['model'],
-            temperature=self.llm_config['temperature'],
-            api_key=openai_api_key
-        )
-        
-        # Initialize HierarchicalNodeParser with chunk sizes (largest to smallest)
-        # This creates a hierarchy: large -> medium -> small chunks
-        chunk_sizes = [
-            self.chunking_config['large_chunk_size'],
-            self.chunking_config['medium_chunk_size'],
-            self.chunking_config['small_chunk_size']
-        ]
-
-        self.hierarchical_parser = HierarchicalNodeParser.from_defaults(
-            chunk_sizes=chunk_sizes,
-            chunk_overlap=self.chunking_config['chunk_overlap']
-        )
-        
-        # Initialize ChromaDB manager for chunks
-        self.chroma_manager = ChromaDBManager(
-            persist_directory=self.vector_store_config['persist_directory'],
-            collection_name=self.vector_store_config['collection_chunks'],
-            embedding_model_name=self.vector_store_config['embedding_model']
-        )
-
-    def merge_tiny_nodes(self, nodes, min_chars=100):
-        """
-        Merges nodes smaller than `min_chars` into the NEXT node.
-        """
-        merged_nodes = []
-        buffer_node = None
-
-        for i, node in enumerate(nodes):
-            # If we have a buffer from the previous step, merge current node into it
-            if buffer_node:
-                # Combine text
-                new_text = buffer_node.get_content() + "\n\n" + node.get_content()
-                node.text = new_text
-                
-                # Combine metadata (optional: prefer the deeper/more specific header)
-                # usually the next node's metadata is fine to keep, or you can merge dicts
-                node.metadata = {**buffer_node.metadata, **node.metadata}
-
-                # Clear buffer
-                buffer_node = None
-
-            # Check if the (possibly merged) node is STILL too small
-            if len(node.get_content()) < min_chars:
-                # If this is the LAST node, we can't merge forward. 
-                # We must merge backward to the previous node in `merged_nodes`
-                if i == len(nodes) - 1 and merged_nodes:
-                    prev_node = merged_nodes[-1]
-                    prev_node.text += "\n\n" + node.get_content()
-                else:
-                    # Mark this node to be merged into the NEXT one
-                    buffer_node = node
-            else:
-                # Node is big enough, keep it
-                merged_nodes.append(node)
-                
-        return merged_nodes
-
-    def chunk_sections(self, sections: List[BaseNode]) -> List[BaseNode]:
-        """
-        Chunk a list of sections at multiple granularity levels using HierarchicalNodeParser.
-        """
-        chunks = []
-        for section in sections:
-            chunks.extend(self.chunk_section_multi_granularity(section))
-        return chunks
-
-    def chunk_section_multi_granularity(self, node: BaseNode) -> Dict[str, List[BaseNode]]:
-        """
-        Chunk a single section/node at multiple granularity levels using HierarchicalNodeParser.
-        
-        Returns a dictionary with keys: 'small', 'medium', 'large'
-        Each value is a list of chunks at that granularity level.
-        """
-        section_text = node.get_content()
-        
-        section_metadata = node.metadata.copy()
-        
-        # Create Document from section text
-        section_doc = Document(text=section_text, metadata=section_metadata)
-        
-        # Use HierarchicalNodeParser to create hierarchical chunks
-        hierarchical_nodes = self.hierarchical_parser.get_nodes_from_documents([section_doc])
-        # print(f"Hierarchical nodes: {hierarchical_nodes}")
-
-        return hierarchical_nodes
+        # Initialize sub-pipelines
+        self.summary_pipeline = SummaryPipeline(config_path)
+        self.hierarchical_pipeline = HierarchicalPipeline(config_path)
 
     def process_pdf(
         self,
         pdf_path: str,
         claim_id: Optional[str] = None,
+        generate_chunks: bool = True,
+        generate_summaries: bool = True,
         split_into_sections: bool = False
     ):
         """
-        Process a single PDF file: convert to markdown and parse into nodes.
+        Process a single PDF file using both summary and hierarchical pipelines.
+        
+        Flow:
+        1. Initialize (already done in __init__)
+        2. Process PDF (extract text)
+        3. Execute Hierarchical pipeline
+        4. Execute Summary pipeline
         
         Args:
             pdf_path: Path to PDF file
             claim_id: Optional claim ID (if None, will be generated from filename)
-            split_into_sections: If True, parse markdown into sections first. If False, use raw markdown directly.
+            split_into_sections: If True, parse markdown into sections before hierarchical chunking
+            generate_summaries: If True, generate summaries using SummaryPipeline
+            generate_chunks: If True, generate hierarchical chunks using HierarchicalPipeline
+        
+        Returns:
+            Dictionary with results from both pipelines
         """
         pdf_path = Path(pdf_path)
         if not pdf_path.exists():
@@ -157,123 +71,206 @@ class IngestionPipeline:
         if claim_id is None:
             claim_id = pdf_path.stem
         
-        print(f"Processing PDF: {pdf_path.name}")
+        print("=" * 60)
+        print("Data Ingestion Pipeline Orchestrator")
+        print("=" * 60)
+        print(f"PDF: {pdf_path.name}")
         print(f"Claim ID: {claim_id}")
+        print(f"Generate summaries: {generate_summaries}")
+        print(f"Generate chunks: {generate_chunks}")
         print(f"Split into sections: {split_into_sections}")
-        print("-" * 50)
-
-        # Step 1: Extract text from PDF and convert to Markdown
-        print("\nStep 1: Extracting text from PDF and converting to Markdown...")
-        md_text = self.pdf_processor.extract_to_markdown(str(pdf_path))
-        print(f"  Extracted {len(md_text)} characters")
-
-        if split_into_sections:
-            # Step 2: Create Document and parse into nodes
-            print("\nStep 2: Parsing markdown into nodes...")
-            doc = Document(text=md_text)
-            section_nodes = self.parser.get_nodes_from_documents([doc])
-            print(f"  Created {len(section_nodes)} nodes")
-
-            # Step 2.5: Merge tiny nodes
-            print("\nStep 2.5: Merging tiny nodes...")
-            section_nodes = self.merge_tiny_nodes(section_nodes, min_chars=200)
-            print(f"  After merging: {len(section_nodes)} nodes")
-
-            # Step 3: Chunk each section at multiple granularity levels
-            print("\nStep 3: Chunking sections at multiple granularity levels...")
-            chunks = self.chunk_sections(section_nodes)
-            print(f"  Created {len(chunks)} chunks")
-        else:
-            # Skip section parsing, use raw markdown directly with hierarchical parser
-            print("\nStep 2: Using raw markdown directly (skipping section parsing)...")
-            doc = Document(text=md_text, metadata={'claim_id': claim_id, 'source_file': pdf_path.name, 'source_path': str(pdf_path)})
-            chunks = self.hierarchical_parser.get_nodes_from_documents([doc])
-            print(f"  Created {len(chunks)} chunks")
-            section_nodes = []  # No section nodes when skipping section parsing
+        print("=" * 60)
         
-        # Step 4: Add metadata to chunks (claim_id, source file, etc.)
-        print("\nStep 4: Adding metadata to chunks...")
-        for chunk in chunks:
-            if not hasattr(chunk, 'metadata') or chunk.metadata is None:
-                chunk.metadata = {}
-            chunk.metadata['claim_id'] = claim_id
-            chunk.metadata['source_file'] = str(pdf_path.name)
-            chunk.metadata['source_path'] = str(pdf_path)
-        
-        # Step 5: Embed chunks and save to ChromaDB
-        print("\nStep 5: Embedding chunks and saving to ChromaDB...")
-        try:
-            node_ids = self.chroma_manager.add_nodes(chunks)
-            print(f"  Successfully embedded and saved {len(node_ids)} chunks to ChromaDB as leaf nodes out of {len(chunks)} total nodes")
-            print(f"  Collection: {self.vector_store_config['collection_chunks']}")
-            print(f"  Persist directory: {self.vector_store_config['persist_directory']}")
-        except Exception as e:
-            print(f"  Error saving chunks to ChromaDB: {e}")
-            raise
-        
-        return {
-            'sections': section_nodes,
-            'chunks': chunks,
+        results = {
             'claim_id': claim_id,
-            'node_ids': node_ids
+            'summary_results': None,
+            'hierarchical_results': None
         }
+        
+        # Step 2: Process PDF - Extract text from PDF
+        print("\n" + "=" * 60)
+        print("Step 2: Processing PDF - Extracting text...")
+        print("=" * 60)
+        md_text = self.pdf_processor.extract_to_markdown(str(pdf_path))
+        print(f"  Extracted {len(md_text)} characters from PDF")
+        
+        source_file = pdf_path.name
+        source_path = str(pdf_path)
+        
+        # Step 3: Execute Hierarchical pipeline
+        if generate_chunks:
+            print("\n" + "=" * 60)
+            print("Step 3: Executing Hierarchical Pipeline...")
+            print("=" * 60)
+            try:
+                hierarchical_results = self.hierarchical_pipeline.execute(
+                    text=md_text,
+                    claim_id=claim_id,
+                    source_file=source_file,
+                    source_path=source_path,
+                    split_into_sections=split_into_sections
+                )
+                results['hierarchical_results'] = hierarchical_results
+            except Exception as e:
+                print(f"Error in hierarchical pipeline: {e}")
+                if generate_summaries:
+                    print("Continuing with summary pipeline...")
+                else:
+                    raise
+        
+        # Step 4: Execute Summary pipeline
+        if generate_summaries:
+            print("\n" + "=" * 60)
+            print("Step 4: Executing Summary Pipeline...")
+            print("=" * 60)
+            try:
+                summary_results = self.summary_pipeline.execute(
+                    text=md_text,
+                    claim_id=claim_id,
+                    source_file=source_file,
+                    source_path=source_path
+                )
+                results['summary_results'] = summary_results
+            except Exception as e:
+                print(f"Error in summary pipeline: {e}")
+                if generate_chunks:
+                    print("Hierarchical pipeline completed successfully.")
+                raise
+        
+        print("\n" + "=" * 60)
+        print("Pipeline Orchestration Complete!")
+        print("=" * 60)
+        
+        return results
 
     def print_existing_chunks(self):
         """Retrieve and print all existing chunks from ChromaDB for debugging."""
+        self.hierarchical_pipeline.print_existing_chunks()
+    
+    def print_collections_info(self):
+        """Print information about all ChromaDB collections."""
         print("=" * 60)
-        print("Retrieving existing chunks from ChromaDB...")
+        print("ChromaDB Collections Information")
         print("=" * 60)
         
         try:
-            # Access the docstore from the index
-            docstore = self.chroma_manager.index.storage_context.docstore
+            # Get chroma_client from hierarchical pipeline (both pipelines use the same client)
+            chroma_client = self.hierarchical_pipeline.chroma_manager.chroma_client
             
-            if not hasattr(docstore, 'docs') or not docstore.docs:
-                print("No chunks found in ChromaDB.")
+            # List all collections
+            collections = chroma_client.list_collections()
+            
+            if not collections:
+                print("\nNo collections found in ChromaDB.")
                 return
             
-            # Get all nodes from docstore
-            all_node_ids = list(docstore.docs.keys())
-            print(f"Found {len(all_node_ids)} chunks in ChromaDB\n")
+            print(f"\nFound {len(collections)} collection(s):\n")
             
-            # Get all nodes and determine which are leaf nodes
-            all_nodes = [docstore.get_document(node_id) for node_id in all_node_ids]
-            leaf_nodes = get_leaf_nodes(all_nodes)
-            leaf_node_ids = {node.node_id for node in leaf_nodes}
+            # Print header
+            print(f"{'Collection Name':<30} {'Collection ID':<40} {'Items':<10}")
+            print("-" * 80)
             
-            print("=" * 60)
-            print("ALL CHUNKS:")
-            print("=" * 60)
-            
-            for i, node_id in enumerate(all_node_ids, 1):
+            # Print each collection's information
+            for collection in collections:
+                collection_name = collection.name
+                collection_id = str(collection.id)  # Convert UUID to string
                 try:
-                    node = docstore.get_document(node_id)
-                    content = node.get_content()
-                    content_length = len(content)
-                    is_leaf = node_id in leaf_node_ids
-                    print(f"\n--- Chunk {i} (ID: {node_id}) ---")
-                    print(f"Content: {content}")
-                    print(f"Length: {content_length} characters")
-                    print(f"Leaf node: {is_leaf}")
-                    if hasattr(node, 'metadata') and node.metadata:
-                        print(f"Metadata: {node.metadata}")
-                    print("-" * 60)
+                    # Get collection count
+                    collection_obj = chroma_client.get_collection(name=collection_name)
+                    item_count = collection_obj.count()
                 except Exception as e:
-                    print(f"\n--- Chunk {i} (ID: {node_id}) ---")
-                    print(f"Error retrieving chunk: {e}")
-                    print("-" * 60)
-                    
+                    item_count = f"Error: {e}"
+                
+                print(f"{collection_name:<30} {collection_id:<40} {item_count:<10}")
+            
+            print("-" * 80)
+            print(f"\nTotal collections: {len(collections)}")
+            
+            # Print docstore information
+            self._print_docstore_info()
+            
         except Exception as e:
-            print(f"Error retrieving chunks from ChromaDB: {e}")
+            print(f"\nError retrieving collections information: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        print("\n" + "=" * 60)
+    
+    def _print_docstore_info(self):
+        """Print information about the docstore."""
+        try:
+            persist_dir = Path(self.config['vector_store']['persist_directory'])
+            docstore_path = persist_dir / "docstore.json"
+            
+            print("\n" + "=" * 60)
+            print("Docstore Information")
+            print("=" * 60)
+            
+            # Check if docstore file exists
+            if not docstore_path.exists():
+                print("\nDocstore file not found.")
+                print(f"Expected location: {docstore_path}")
+                return
+            
+            # Get file size
+            file_size = docstore_path.stat().st_size
+            file_size_mb = file_size / (1024 * 1024)
+            
+            print(f"\nDocstore file: {docstore_path}")
+            print(f"File size: {file_size:,} bytes ({file_size_mb:.2f} MB)")
+            
+            # Try to access docstore from hierarchical pipeline
+            try:
+                docstore = self.hierarchical_pipeline.chroma_manager.index.storage_context.docstore
+                
+                if hasattr(docstore, 'docs') and docstore.docs:
+                    total_nodes = len(docstore.docs)
+                    print(f"Total nodes: {total_nodes}")
+                    
+                    # Get some statistics about nodes
+                    from llama_index.core.node_parser import get_leaf_nodes
+                    all_nodes = [docstore.get_document(node_id) for node_id in list(docstore.docs.keys())[:1000]]  # Sample first 1000 for performance
+                    if len(docstore.docs) <= 1000:
+                        all_nodes = [docstore.get_document(node_id) for node_id in docstore.docs.keys()]
+                    
+                    leaf_nodes = get_leaf_nodes(all_nodes)
+                    leaf_count = len(leaf_nodes)
+                    parent_count = total_nodes - leaf_count if len(all_nodes) == total_nodes else "N/A"
+                    
+                    print(f"Leaf nodes: {leaf_count}")
+                    if parent_count != "N/A":
+                        print(f"Parent nodes: {parent_count}")
+                    
+                    # Get claim_id distribution
+                    claim_ids = set()
+                    for node in all_nodes[:100]:  # Sample for performance
+                        if hasattr(node, 'metadata') and node.metadata:
+                            claim_id = node.metadata.get('claim_id')
+                            if claim_id:
+                                claim_ids.add(claim_id)
+                    
+                    if claim_ids:
+                        print(f"Unique claim IDs (sampled): {len(claim_ids)}")
+                        print(f"Claim IDs: {', '.join(sorted(claim_ids))}")
+                    
+                else:
+                    print("Docstore is empty or not accessible.")
+                    
+            except Exception as e:
+                print(f"Error accessing docstore: {e}")
+                print("File exists but could not load docstore content.")
+            
+        except Exception as e:
+            print(f"\nError retrieving docstore information: {e}")
             import traceback
             traceback.print_exc()
 
 
 def main():
-    """Main entry point for the ingestion pipeline."""
+    """Main entry point for the ingestion pipeline orchestrator."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="PDF Data Ingestion Pipeline using MarkdownNodeParser")
+    parser = argparse.ArgumentParser(description="PDF Data Ingestion Pipeline Orchestrator")
     parser.add_argument(
         "--pdf",
         type=str,
@@ -290,15 +287,35 @@ def main():
         help="Print all existing chunks from ChromaDB without processing any PDF (debugging mode)"
     )
     parser.add_argument(
+        "--print-store-info",
+        action="store_true",
+        help="Print information about vector store (ChromaDB collections and docstore)"
+    )
+    parser.add_argument(
         "--split-into-sections",
         action="store_true",
         help="Split markdown into sections before chunking (default: use raw markdown directly)"
+    )
+    parser.add_argument(
+        "--no-summaries",
+        action="store_true",
+        help="Skip summary generation (only run hierarchical chunking)"
+    )
+    parser.add_argument(
+        "--no-chunks",
+        action="store_true",
+        help="Skip hierarchical chunking (only run summary generation)"
     )
     
     args = parser.parse_args()
     
     # Initialize pipeline
     pipeline = IngestionPipeline()
+    
+    # If print-store-info flag is set, print store info and exit
+    if args.print_store_info:
+        pipeline.print_collections_info()
+        return
     
     # If print-existing-chunks flag is set, skip PDF processing
     if args.print_existing_chunks:
@@ -307,14 +324,16 @@ def main():
     
     # Otherwise, require PDF argument
     if not args.pdf:
-        parser.error("--pdf is required unless --print-existing-chunks is used")
+        parser.error("--pdf is required unless --print-existing-chunks or --print-store-info is used")
     
-    # Process PDF (split_into_sections is True if --split-into-sections flag is set)
-    pipeline.process_pdf(args.pdf, claim_id=args.claim_id, split_into_sections=args.split_into_sections)
-
-    print("\n" + "="*50)
-    print("Processing Complete!")
-    print("="*50)
+    # Process PDF
+    pipeline.process_pdf(
+        pdf_path=args.pdf,
+        claim_id=args.claim_id,
+        generate_chunks=not args.no_chunks,
+        generate_summaries=not args.no_summaries,
+        split_into_sections=args.split_into_sections
+    )
 
 
 if __name__ == "__main__":
