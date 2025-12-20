@@ -10,8 +10,8 @@ from langchain_openai import ChatOpenAI
 from langchain_core.tools import tool
 from langchain.agents import create_agent
 
-from src.utils.config_loader import load_config, get_vector_store_config
-from src.utils.vector_store import ChromaDBManager
+from src.utils.config_loader import load_config
+from src.retrieval.summaries_retriever import SummariesRetriever
 
 
 class SummaryAgent:
@@ -31,17 +31,9 @@ class SummaryAgent:
         # Load configuration
         self.config = load_config(config_path)
         llm_config = self.config.get('llm', {})
-        vector_store_config = get_vector_store_config(self.config)
         
-        # Initialize ChromaDB manager for summaries collection
-        self.summary_manager = ChromaDBManager(
-            persist_directory=vector_store_config['persist_directory'],
-            collection_name=vector_store_config['collection_summaries'],
-            embedding_model_name=vector_store_config['embedding_model']
-        )
-        
-        # Get the vector store index for summaries
-        self.index = self.summary_manager.get_index()
+        # Initialize summaries retriever
+        self.retriever = SummariesRetriever(config_path=config_path)
         
         # Initialize LLM for the agent
         import os
@@ -63,24 +55,16 @@ class SummaryAgent:
         retrieval_config = self.config.get('retrieval', {})
         default_top_k = retrieval_config.get('default_top_k', 5)
         
-        # Create the retrieve_context tool using closure to access self.index
+        # Create the retrieve_context tool using closure to access self.retriever
         @tool
         def retrieve_context(query: str) -> str:
             """Retrieve relevant context from document summaries using vector similarity search."""
             try:
-                # Create a simple retriever from the index
-                retriever = self.index.as_retriever(similarity_top_k=default_top_k)
-                
-                # Retrieve nodes
-                nodes = retriever.retrieve(query)
+                # Use the query method which returns formatted results
+                results = self.retriever.query(query, top_k=default_top_k, return_text=True)
                 
                 # Combine all retrieved summaries into a single string
-                context_parts = []
-                for node_with_score in nodes:
-                    node = node_with_score.node
-                    summary_text = node.get_content()
-                    context_parts.append(summary_text)
-                
+                context_parts = [result['text'] for result in results]
                 context = "\n\n".join(context_parts)
                 return context if context else "No relevant summaries found."
             except Exception as e:

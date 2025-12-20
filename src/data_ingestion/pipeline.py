@@ -91,8 +91,8 @@ class IngestionPipeline:
         print("\n" + "=" * 60)
         print("Step 2: Processing PDF - Extracting text...")
         print("=" * 60)
-        md_text = self.pdf_processor.extract_to_markdown(str(pdf_path))
-        print(f"  Extracted {len(md_text)} characters from PDF")
+        plain_text = self.pdf_processor.extract_to_text(str(pdf_path))
+        print(f"  Extracted {len(plain_text)} characters from PDF")
         
         source_file = pdf_path.name
         source_path = str(pdf_path)
@@ -104,7 +104,7 @@ class IngestionPipeline:
             print("=" * 60)
             try:
                 hierarchical_results = self.hierarchical_pipeline.execute(
-                    text=md_text,
+                    text=plain_text,
                     claim_id=claim_id,
                     source_file=source_file,
                     source_path=source_path,
@@ -125,7 +125,7 @@ class IngestionPipeline:
             print("=" * 60)
             try:
                 summary_results = self.summary_pipeline.execute(
-                    text=md_text,
+                    text=plain_text,
                     claim_id=claim_id,
                     source_file=source_file,
                     source_path=source_path
@@ -219,51 +219,46 @@ class IngestionPipeline:
             print(f"\nDocstore file: {docstore_path}")
             print(f"File size: {file_size:,} bytes ({file_size_mb:.2f} MB)")
             
-            # Try to access docstore from hierarchical pipeline
+            # Calculate total items as sum of items in all collections
             try:
-                docstore = self.hierarchical_pipeline.chroma_manager.index.storage_context.docstore
+                chroma_client = self.hierarchical_pipeline.chroma_manager.chroma_client
+                collections = chroma_client.list_collections()
+                
+                total_items = 0
+                for collection in collections:
+                    try:
+                        collection_obj = chroma_client.get_collection(name=collection.name)
+                        total_items += collection_obj.count()
+                    except Exception:
+                        pass
+                
+                print(f"Total items: {total_items} (sum of all collections)")
+                
+                # Get docstore node count and parent nodes
+                from llama_index.core import StorageContext
+                from llama_index.core.node_parser import get_leaf_nodes
+                
+                storage_context = StorageContext.from_defaults(persist_dir=str(persist_dir))
+                docstore = storage_context.docstore
                 
                 if hasattr(docstore, 'docs') and docstore.docs:
-                    total_nodes = len(docstore.docs)
-                    print(f"Total nodes: {total_nodes}")
+                    docstore_nodes = len(docstore.docs)
+                    print(f"Docstore nodes: {docstore_nodes}")
                     
-                    # Get some statistics about nodes
-                    from llama_index.core.node_parser import get_leaf_nodes
-                    all_nodes = [docstore.get_document(node_id) for node_id in list(docstore.docs.keys())[:1000]]  # Sample first 1000 for performance
-                    if len(docstore.docs) <= 1000:
-                        all_nodes = [docstore.get_document(node_id) for node_id in docstore.docs.keys()]
-                    
+                    # Calculate parent nodes (non-leaf nodes)
+                    all_nodes = [docstore.get_document(node_id) for node_id in docstore.docs.keys()]
                     leaf_nodes = get_leaf_nodes(all_nodes)
-                    leaf_count = len(leaf_nodes)
-                    parent_count = total_nodes - leaf_count if len(all_nodes) == total_nodes else "N/A"
-                    
-                    print(f"Leaf nodes: {leaf_count}")
-                    if parent_count != "N/A":
-                        print(f"Parent nodes: {parent_count}")
-                    
-                    # Get claim_id distribution
-                    claim_ids = set()
-                    for node in all_nodes[:100]:  # Sample for performance
-                        if hasattr(node, 'metadata') and node.metadata:
-                            claim_id = node.metadata.get('claim_id')
-                            if claim_id:
-                                claim_ids.add(claim_id)
-                    
-                    if claim_ids:
-                        print(f"Unique claim IDs (sampled): {len(claim_ids)}")
-                        print(f"Claim IDs: {', '.join(sorted(claim_ids))}")
-                    
+                    parent_nodes = docstore_nodes - len(leaf_nodes)
+                    print(f"Parent nodes: {parent_nodes}")
                 else:
-                    print("Docstore is empty or not accessible.")
+                    print("Docstore nodes: 0")
+                    print("Parent nodes: 0")
                     
             except Exception as e:
-                print(f"Error accessing docstore: {e}")
-                print("File exists but could not load docstore content.")
+                print(f"Error calculating items: {e}")
             
         except Exception as e:
             print(f"\nError retrieving docstore information: {e}")
-            import traceback
-            traceback.print_exc()
 
 
 def main():

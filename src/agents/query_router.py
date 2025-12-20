@@ -117,29 +117,42 @@ class QueryRouterAgent:
         # System prompt for routing decisions
         system_prompt = """You are a query routing agent for an insurance claim document retrieval system.
 
-Your task is to analyze user queries and determine the best retrieval strategy:
+Your task is to analyze user queries and route them to the most appropriate retrieval strategy.
 
-1. **Chunks (Auto-Merging Retrieval)**: Use for queries that need:
-   - Specific details, facts, or precise information
-   - Needle-in-haystack type queries
-   - Detailed document analysis
-   - Specific dates, amounts, names, or exact information
-   - Questions requiring granular document chunks
+## Routing Decision Framework
 
-2. **Summaries**: Use for queries that need:
-   - High-level overview or summary information
-   - General understanding of documents
-   - Broad questions about document content
-   - Timeline or overview questions
-   - Questions that can be answered from document summaries
+### Route to `route_to_needle` (Auto-Merging Retrieval) when:
+- Query seeks **specific facts, numbers, or exact details** (e.g., claim amounts, policy numbers, dates, names)
+- Query requires **precise information extraction** from document sections
+- Query is a **"needle-in-haystack"** type (finding specific information within large documents)
+- Query asks about **granular details** that require searching individual document chunks
+- Query needs **exact quotes or verbatim text** from documents
 
-Analyze the user's query and use the appropriate routing tool:
-- Use `route_to_needle` if the query requires detailed, specific information
-- Use `route_to_summaries` if the query requires high-level overview information
-- If you are not sure about the routing strategy, simply say "Query is not clear, please provide more information"
+**Examples:**
+- "What was the claim amount for policy #12345?"
+- "When did the incident occur?"
+- "What is the exact wording in section 3.2?"
 
+### Route to `route_to_summaries` when:
+- Query seeks **high-level understanding** or document overview
+- Query asks about **general themes, patterns, or trends** across documents
+- Query requires **contextual understanding** rather than specific facts
+- Query asks for **summaries, timelines, or broad analysis**
+- Query can be answered from **document-level summaries** without diving into chunks
 
-Always use exactly one tool to route the query."""
+**Examples:**
+- "What are the main types of claims in these documents?"
+- "Give me an overview of all the insurance claims"
+- "What is the general timeline of events?"
+
+## Decision Rules
+
+1. **Always use exactly one tool** - either `route_to_needle` or `route_to_summaries`
+2. **When uncertain**: If the query is ambiguous or lacks sufficient context to make a routing decision, respond with: "Query is not clear, please provide more information"
+3. **Default to chunks** if the query could reasonably require both strategies - chunks provide more detailed information
+4. **Consider query intent**: Focus on what the user is trying to accomplish, not just keywords
+
+Analyze the query carefully and route accordingly."""
         
         # Create the agent
         self.agent = create_agent(
@@ -159,4 +172,27 @@ Always use exactly one tool to route the query."""
             RetrievalStrategy enum value indicating chunks or summaries
         """
         # Invoke the agent with the user query
-        self.agent.invoke({"messages": [{"role": "user", "content": query}]})
+        response = self.agent.invoke({"messages": [{"role": "user", "content": query}]})
+        
+        # Check if the agent determined the query is unclear
+        # The agent might respond with text instead of using a tool
+        if response and "messages" in response:
+            # Check if any tool was called
+            tool_called = False
+            unclear_message = None
+            
+            for message in response["messages"]:
+                # Check if this message contains a tool call
+                if hasattr(message, "tool_calls") and message.tool_calls:
+                    tool_called = True
+                    break
+                # Check if this is a text response indicating unclear query
+                if hasattr(message, "content") and message.content:
+                    content = str(message.content).lower()
+                    if "not clear" in content or "provide more information" in content:
+                        unclear_message = message.content
+                        break
+            
+            # If no tool was called and we found an unclear message, print it
+            if not tool_called and unclear_message:
+                print("Query is not clear, please provide more information")
