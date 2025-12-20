@@ -16,9 +16,13 @@ from src.retrieval.summaries_retriever import SummariesRetriever
 
 class SummaryAgent:
     """
-    Simple LangChain agent that uses summaries retrieval to answer broad user queries.
-    The agent has a single tool called retrieve_context that retrieves relevant
-    summaries, then uses that context to answer the user's question.
+    LangChain agent that uses summaries retrieval to answer user queries.
+    The agent has two tools:
+    - retrieve_context: Retrieves document-level summaries (high-level overviews)
+    - retrieve_detailed_context: Retrieves chunk-level summaries (detailed sections)
+    
+    The agent defaults to using document-level summaries for broad questions,
+    but can fall back to chunk-level summaries when more detail is needed.
     """
     
     def __init__(self, config_path: str = "config/config.yaml"):
@@ -56,35 +60,106 @@ class SummaryAgent:
         default_top_k = retrieval_config.get('default_top_k', 5)
         
         # Create the retrieve_context tool using closure to access self.retriever
+        # This tool retrieves document-level summaries (high-level overviews)
         @tool
         def retrieve_context(query: str) -> str:
-            """Retrieve relevant context from document summaries using vector similarity search."""
+            """
+            Retrieve document-level summaries (high-level overviews of entire documents).
+            Use ONLY for very broad questions with NO specific details mentioned.
+            """
             try:
-                # Use the query method which returns formatted results
-                results = self.retriever.query(query, top_k=default_top_k, return_text=True)
+                # Use query_by_summary_level to get document-level summaries
+                results = self.retriever.query_by_summary_level(
+                    query=query,
+                    summary_level='document',
+                    top_k=default_top_k,
+                    return_text=True
+                )
                 
                 # Combine all retrieved summaries into a single string
                 context_parts = [result['text'] for result in results]
                 context = "\n\n".join(context_parts)
-                return context if context else "No relevant summaries found."
+                return context if context else "No relevant document summaries found."
             except Exception as e:
-                return f"Error retrieving summaries: {str(e)}"
+                return f"Error retrieving document summaries: {str(e)}"
         
-        # Define the tool
-        self.tools = [retrieve_context]
+        # Create a tool for retrieving chunk-level summaries (more detailed)
+        @tool
+        def retrieve_detailed_context(query: str) -> str:
+            """
+            Retrieve chunk-level summaries (detailed summaries of specific document sections).
+            Use for questions mentioning specific details, names, dates, amounts, locations, or entities.
+            This is the DEFAULT tool for most questions.
+            """
+            try:
+                # Use query_by_summary_level to get chunk-level summaries
+                results = self.retriever.query_by_summary_level(
+                    query=query,
+                    summary_level='chunk',
+                    top_k=default_top_k,
+                    return_text=True
+                )
+                
+                # Combine all retrieved summaries into a single string
+                context_parts = [result['text'] for result in results]
+                context = "\n\n".join(context_parts)
+                return context if context else "No relevant chunk summaries found."
+            except Exception as e:
+                return f"Error retrieving chunk summaries: {str(e)}"
+        
+        # Define the tools
+        self.tools = [retrieve_context, retrieve_detailed_context]
         
         # System prompt for the agent
-        system_prompt = """You are a helpful assistant that answers broad, high-level questions based on retrieved document summaries.
+        system_prompt = """You are a helpful assistant that answers questions based on retrieved document summaries.
 
-When a user asks a question:
-1. Use the retrieve_context tool to get relevant summaries from the documents
-2. Analyze the retrieved summaries carefully
-3. Answer the user's question based on the summary context provided
-4. Focus on providing high-level overviews, timelines, key events, and general understanding
-5. If the summaries don't contain enough information to answer the question, say so clearly
+You have access to two retrieval tools. CRITICAL: Choose the correct tool based on the question type.
 
-Always use the retrieve_context tool before answering any question.
-The summaries provide high-level overviews, so use them to answer broad questions about document content, timelines, key events, and general understanding."""
+TOOL SELECTION RULES:
+
+1. retrieve_context (document-level summaries):
+   ONLY use for questions that ask for:
+   - "What is this document about?" or "Give me an overview"
+   - "What happened overall?" (very broad, no specifics)
+   - "What is the general timeline?" (high-level only)
+   - Questions with NO specific nouns, names, dates, or details mentioned
+   
+   Examples of when to use retrieve_context:
+   - "What is this document about?"
+   - "Give me a summary"
+   - "What happened?"
+   - "What is the overall timeline?"
+
+2. retrieve_detailed_context (chunk-level summaries):
+   USE THIS for questions that mention:
+   - Specific people, organizations, or entities (names)
+   - Specific dates, times, or periods
+   - Specific events, incidents, or occurrences
+   - Specific amounts, values, numbers, or quantities
+   - Specific locations, places, or addresses
+   - Specific topics, subjects, or themes
+   - Any question with a specific noun, proper noun, or detail
+   
+   Examples of when to use retrieve_detailed_context:
+   - "What happened with the accident on [date]?"
+   - "Tell me about [person's name]"
+   - "What was the claim amount?"
+   - "Where did the incident occur?"
+   - "What happened during [specific event]?"
+   - "Tell me about [specific topic]"
+   - "What are the details about [something specific]?"
+
+DECISION PROCESS:
+1. Analyze the user's question carefully
+2. If the question mentions ANY specific noun, name, date, amount, location, or detail → use retrieve_detailed_context
+3. If the question is ONLY asking for a very broad, general overview with NO specifics → use retrieve_context
+4. When in doubt, use retrieve_detailed_context (it's better to get specific details than miss them)
+
+After retrieving context:
+- Analyze the retrieved summaries carefully
+- Answer the user's question based on the summary context provided
+- If the summaries don't contain enough information, say so clearly
+- You can use both tools if needed, but start with the appropriate one based on the question type"""
         
         # Create the agent
         self.agent = create_agent(

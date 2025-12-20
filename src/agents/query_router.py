@@ -135,22 +135,30 @@ Your task is to analyze user queries and route them to the most appropriate retr
 
 ### Route to `route_to_summaries` when:
 - Query seeks **high-level understanding** or document overview
+- Query asks **"What is the document about?"** or similar general content questions
 - Query asks about **general themes, patterns, or trends** across documents
 - Query requires **contextual understanding** rather than specific facts
 - Query asks for **summaries, timelines, or broad analysis**
 - Query can be answered from **document-level summaries** without diving into chunks
+- Query uses phrases like "tell me about", "what is about", "overview", "summary", "describe"
 
 **Examples:**
+- "What is the document about?"
 - "What are the main types of claims in these documents?"
 - "Give me an overview of all the insurance claims"
 - "What is the general timeline of events?"
+- "Tell me about the documents"
+- "What topics are covered?"
 
 ## Decision Rules
 
 1. **Always use exactly one tool** - either `route_to_needle` or `route_to_summaries`
-2. **When uncertain**: If the query is ambiguous or lacks sufficient context to make a routing decision, respond with: "Query is not clear, please provide more information"
-3. **Default to chunks** if the query could reasonably require both strategies - chunks provide more detailed information
-4. **Consider query intent**: Focus on what the user is trying to accomplish, not just keywords
+2. **General document questions default to summaries**: Questions asking "what is about", "tell me about", or seeking general understanding should route to `route_to_summaries`
+3. **When uncertain between strategies**: Default to `route_to_needle` only if the query could require specific details. Default to `route_to_summaries` if the query is general or asks about document content
+4. **Only mark as unclear**: If the query is completely ambiguous, nonsensical, or lacks any meaningful content (not just general questions)
+5. **Consider query intent**: Focus on what the user is trying to accomplish - general understanding → summaries, specific facts → chunks
+
+**Important**: "What is the document about?" and similar general content questions are clear and should route to `route_to_summaries`.
 
 Analyze the query carefully and route accordingly."""
         
