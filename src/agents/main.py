@@ -29,7 +29,7 @@ def main():
     print("Enter your queries below. Type 'exit' or 'quit' to stop.")
     print("The agent will automatically route your query to the appropriate retrieval strategy:")
     print("  - Chunks: For specific details and precise information")
-    print("  - Summaries: For high-level overviews (not yet supported)")
+    print("  - Summaries: For high-level overviews")
     print("-" * 60)
     
     while True:

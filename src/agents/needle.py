@@ -118,7 +118,6 @@ Always use the retrieve_context tool before answering any question."""
             stream_mode="values",
         ):
             result = event["messages"][-1]
-            result.pretty_print()
             if hasattr(result, 'content') and result.content:
                 if not hasattr(result, 'tool_calls') or not result.tool_calls:
                     result_content = str(result.content)

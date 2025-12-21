@@ -85,15 +85,13 @@ def get_vector_store_index(
             
             # Verify docstore has nodes and test access
             if hasattr(docstore, 'docs'):
-                print(f"Docstore has {len(docstore.docs)} documents")
                 # Test accessing a few nodes to ensure they're loaded
                 test_ids = list(docstore.docs.keys())[:5]
                 for doc_id in test_ids:
                     try:
                         node = docstore.get_document(doc_id)
-                        print(f"Successfully loaded node: {doc_id}")
                     except Exception as e:
-                        print(f"Error loading node {doc_id}: {e}")
+                        pass
             
             # Create new storage context with our vector store and the loaded docstore
             # Important: Pass persist_dir to ensure docstore persistence is maintained
@@ -107,11 +105,9 @@ def get_vector_store_index(
             
             # Verify the new context has access to the docstore
             if hasattr(storage_context.docstore, 'docs'):
-                print(f"New storage context docstore has {len(storage_context.docstore.docs)} documents")
+                pass
         except (FileNotFoundError, Exception) as e:
             # If loading fails (e.g., files are corrupted or incomplete), create new context
-            print(f"Warning: Could not load existing storage context: {e}")
-            print("Creating new storage context...")
             storage_context = None
     
     # Create new storage context if we didn't load one successfully
@@ -144,23 +140,17 @@ def get_vector_store_index(
             
             if index_doc_count == 0:
                 # Restore the docstore by replacing it in the index's storage context
-                print(f"Restoring docstore with {original_doc_count} documents to index")
                 index.storage_context.docstore = storage_context.docstore
-                print(f"Docstore restored successfully")
-            else:
-                print(f"Index created with docstore containing {index_doc_count} documents")
     
     # Final verification
     if hasattr(index.storage_context, 'docstore') and hasattr(index.storage_context.docstore, 'docs'):
         doc_count = len(index.storage_context.docstore.docs)
-        print(f"Final verification: Index docstore has {doc_count} documents")
         if doc_count > 0:
             test_id = list(index.storage_context.docstore.docs.keys())[0]
             try:
                 test_node = index.storage_context.docstore.get_document(test_id)
-                print(f"Successfully verified docstore access with test node: {test_id}")
             except Exception as e:
-                print(f"Warning: Could not access test node {test_id} from index docstore: {e}")
+                pass
     
     return index
 

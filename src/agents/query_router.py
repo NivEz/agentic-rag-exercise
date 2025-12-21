@@ -86,6 +86,7 @@ class QueryRouterAgent:
             print("-" * 60)
             try:
                 response = self.needle_agent.answer(query)
+                print(response)
                 return response
             except Exception as e:
                 return f"Error querying needle agent: {str(e)}"
@@ -111,6 +112,7 @@ class QueryRouterAgent:
             print("-" * 60)
             try:
                 response = self.summary_agent.answer(query)
+                print(response)
                 return response
             except Exception as e:
                 return f"Error querying summary agent: {str(e)}"
