@@ -180,8 +180,8 @@ Analyze the query carefully and route accordingly."""
             RetrievalStrategy enum value indicating chunks or summaries
         """
         # Invoke the agent with the user query
-        response = self.agent.invoke({"messages": [{"role": "user", "content": query}]})
-        
+        response = self.agent.invoke({"messages": [{"role": "user", "content": query}]}, return_intermediate_steps=True)
+
         # Check if the agent determined the query is unclear
         # The agent might respond with text instead of using a tool
         if response and "messages" in response:

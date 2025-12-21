@@ -97,12 +97,17 @@ Always use the retrieve_context tool before answering any question."""
         Returns:
             The agent's answer to the query
         """
+        result = ""
         # Invoke the agent with the user query
         for event in self.agent.stream(
             {"messages": [{"role": "user", "content": query}]},
             stream_mode="values",
         ):
-            event["messages"][-1].pretty_print()
+            result = event["messages"][-1]
+            result.pretty_print()
+            result = result.content
+
+        return result
     
     def get_agent(self):
         """Get the underlying agent."""

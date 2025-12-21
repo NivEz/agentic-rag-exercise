@@ -2,8 +2,6 @@
 
 from typing import Dict
 from pathlib import Path
-import pymupdf.layout
-import pymupdf4llm
 import pymupdf
 
 
@@ -24,6 +22,10 @@ class PDFProcessor:
         Returns:
             Markdown string
         """
+        import pymupdf.layout
+        import pymupdf4llm
+
+    
         md_text = pymupdf4llm.to_markdown(pdf_path)
         return md_text
     
