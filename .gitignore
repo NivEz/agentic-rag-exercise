@@ -22,7 +22,6 @@ Thumbs.db
 
 data/processed/
 data/vector_store/
-docs/
 examples/
 
 evaluations/results/
