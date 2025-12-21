@@ -1,16 +1,22 @@
 ﻿# Agentic RAG System
 
-A Retrieval-Augmented Generation (RAG) system that uses hierarchical chunking, summarization, and intelligent routing to answer questions from insurance claim documents.
+A Retrieval-Augmented Generation (RAG) system that uses hierarchical chunking, summarization, and intelligent routing to answer questions from insurance claim documents. The system combines LlamaIndex for document processing, ChromaDB for vector storage, and LangChain agents for intelligent query routing and response generation.
 
 ## Overview
 
 This system processes PDF documents through multiple pipelines, stores them in ChromaDB, and uses LangChain agents with intelligent routing to retrieve and answer questions. The system is evaluated using RAGAS metrics.
 
-## Architecture
+## High Level Architecture
 
-The system consists of four main components that work together:
+![Architecture Diagram](docs/architecture.jpg)
 
-`PDF Document => Data Ingestion => ChromaDB Storage => Retrieval => Agents => Evaluation`
+The system follows a two-stage architecture:
+
+**RAG Pipeline (Data Ingestion):**
+`PDF Document → Hierarchical Chunking & Summarization → ChromaDB (Chunks & Summaries Collections)`
+
+**Agentic Pipeline (Query Processing):**
+`User Query → Router Agent → Expert Agents (Summary/Needle) → Context Retrieval → LLM Response → Evaluation`
 
 ## Components
 
@@ -24,6 +30,15 @@ The ingestion process uses **LlamaIndex** to process PDFs and stores them in **C
 -   Stores hierarchical chunks in the chunks collection in ChromaDB
 -   Only leaf nodes are stored in the vector store; all nodes (including parent nodes) are stored in the docstore for auto-merging retrieval
 
+**Chunk Sizes:**
+
+-   **Small chunks**: 128 tokens - Fine-grained chunks for precise information retrieval
+-   **Medium chunks**: 256 tokens - Balanced chunks for moderate detail queries
+-   **Large chunks**: 512 tokens - Broad chunks for context-rich retrieval
+-   **Chunk overlap**: 50 tokens - Ensures continuity between adjacent chunks and prevents information loss at boundaries
+
+The hierarchical structure creates parent-child relationships: large chunks contain medium chunks, which in turn contain small chunks. This enables the Auto-Merging Retriever to intelligently combine smaller retrieved chunks back into their parent contexts when multiple siblings are found, providing optimal context for the LLM.
+
 #### Summaries Pipeline
 
 -   Generates summaries using MapReduce approach with SentenceSplitter
@@ -31,6 +46,12 @@ The ingestion process uses **LlamaIndex** to process PDFs and stores them in **C
     -   **Chunk-level summaries**: Summaries for individual document sections
     -   **Document-level summaries**: High-level overview summaries for entire documents
 -   Stores summaries in the summaries collection in ChromaDB
+
+**Summary Chunking:**
+
+-   **Chunk size**: 1024 tokens - Larger chunks optimized for summarization tasks
+-   **Chunk overlap**: 200 tokens - Ensures comprehensive coverage when generating summaries
+-   These larger chunks are processed through the MapReduce approach: each chunk is summarized individually, then all summaries are aggregated and summarized again to create document-level summaries
 
 Both pipelines run during ingestion, creating two separate vector store collections, optimized for different query types.
 
@@ -43,7 +64,7 @@ The system uses two retrieval strategies:
 -   Uses SummariesRetriever to search the summaries collection
 -   Optimized for high-level, overview questions
 -   Returns document-level or chunk-level summaries based on query specificity
--   Optimized for main key events, timeline and general information
+-   Best suited for main key events, timelines, and general information queries
 
 #### Chunks Index Retrieval (Auto-Merging)
 
@@ -64,19 +85,19 @@ Built with **LangChain**, the system uses three types of agents:
 
 #### Needle Agent
 
--   Handles specific, detailed queries
--   Uses AutoMergingRetriever to find precise information
--   Best for questions requiring exact facts, numbers, or specific details
--   If did not retrieve enough context, the agent will reconstruct the query
+-   Handles specific, detailed queries requiring precise information extraction
+-   Uses AutoMergingRetriever to find exact information from hierarchical chunks
+-   Best for questions requiring exact facts, numbers, dates, or specific details
+-   If insufficient context is retrieved, the agent will reconstruct the query and retry
 
 #### Summary Agent
 
--   Handles broad, overview queries
--   Uses SummariesRetriever to retrieve high-level information
--   Has two tools:
-    -   retrieve_context: For document-level summaries (very broad questions)
-    -   retrieve_detailed_context: For chunk-level summaries (specific but high-level questions)
--   If did not retrieve enough context, the agent will reconstruct the query
+-   Handles broad, overview queries requiring high-level understanding
+-   Uses SummariesRetriever to retrieve summary information
+-   Has two retrieval tools:
+    -   `retrieve_context`: Retrieves document-level summaries for very broad questions
+    -   `retrieve_detailed_context`: Retrieves chunk-level summaries for specific but high-level questions
+-   If insufficient context is retrieved, the agent will reconstruct the query and retry
 
 All agents use LangChain's agent framework with tool calling to retrieve context and generate answers.
 
@@ -85,7 +106,7 @@ All agents use LangChain's agent framework with tool calling to retrieve context
 The system uses **RAGAS** (Retrieval-Augmented Generation Assessment) to evaluate performance:
 
 -   **Metrics**: answer correctness, faithfulness, context precision
--   **Dataset**: Pre-defined questions with ground truth answers
+-   **Dataset**: Pre-defined questions with ground truth answers (`evaluations/dataset.py`)
 -   **Process**:
     1. Query Router Agent processes each question
     2. Retrieves contexts and generates answers
@@ -138,38 +159,73 @@ OPENAI_API_KEY=your_api_key_here
 
 ### Data Ingestion
 
-`bash
-python src/data_ingestion/pipeline.py --pdf "path/to/file.pdf"
-`
+Process PDF documents and store them in ChromaDB. You must run two separate commands - one for chunks and one for summaries:
+
+**Step 1: Generate hierarchical chunks:**
+
+```bash
+python src/data_ingestion/pipeline.py --pdf "path/to/file.pdf" --chunks
+```
+
+**Step 2: Generate summaries:**
+
+```bash
+python src/data_ingestion/pipeline.py --pdf "path/to/file.pdf" --summaries
+```
+
+**Example:**
+
+```bash
+# Generate chunks
+python src/data_ingestion/pipeline.py --pdf "data/raw/Insurance_Claim_Report_Comprehensive.pdf" --chunks
+
+# Generate summaries
+python src/data_ingestion/pipeline.py --pdf "data/raw/Insurance_Claim_Report_Comprehensive.pdf" --summaries
+```
+
+This will create hierarchical chunks and summaries separately in ChromaDB, ready for retrieval.
 
 ### Query Processing
 
-`python
-from src.agents.query_router import QueryRouterAgent
+Run interactive queries using the agent system:
 
-router = QueryRouterAgent()
-response = router.answer_with_contexts("What is the claim number?")
-`
+```bash
+python src/agents/main.py
+```
+
+The system will prompt you for queries, route them to the appropriate agent, and return answers based on the retrieved context.
 
 ### Evaluation
 
-`ash
+Run the evaluation suite to assess system performance:
+
+```bash
 python evaluations/main.py
-`
+```
+
+This processes a predefined dataset, generates answers using the Query Router Agent, evaluates them with RAGAS metrics, and saves results to CSV files in `evaluations/results/`.
 
 ## Configuration
 
-All settings are configured in config/config.yaml, including:
+All settings are configured in `config/config.yaml`. Key configuration sections include:
 
--   LLM settings (model, temperature)
--   Chunking parameters (sizes, overlap)
--   Vector store settings (collections, embeddings)
--   Summarization settings
+-   **LLM settings**: Model selection (default: `gpt-4o-mini`), temperature, and embedding model
+-   **Chunking parameters**: Hierarchical chunk sizes (128, 256, 512 tokens) and overlap (50 tokens)
+-   **Vector store settings**: ChromaDB persistence directory and collection names
+-   **Summarization settings**: Chunk size (1024 tokens) and overlap (200 tokens) for summary generation
+-   **Retrieval settings**: Default top-k retrieval parameters
+
+See `config/config.yaml` for all available options and their descriptions.
 
 ## Dependencies
 
--   **LlamaIndex**: Document processing and hierarchical chunking
--   **ChromaDB**: Vector storage
--   **LangChain**: Agent framework
--   **RAGAS**: Evaluation metrics
--   **OpenAI**: LLM and embeddings
+Key dependencies include:
+
+-   **LlamaIndex**: Document processing, hierarchical chunking, and node parsing
+-   **ChromaDB**: Persistent vector storage for embeddings
+-   **LangChain**: Agent framework and tool calling infrastructure
+-   **RAGAS**: Evaluation metrics for RAG system assessment
+-   **OpenAI**: LLM inference and text embeddings
+-   **PyMuPDF**: PDF text extraction and processing
+
+See `requirements.txt` for the complete list of dependencies and versions.

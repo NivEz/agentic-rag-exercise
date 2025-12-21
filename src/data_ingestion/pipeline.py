@@ -23,8 +23,8 @@ class IngestionPipeline:
         Flow:
         1. Initialize
         2. Process PDF (extract text)
-        3. Execute Hierarchical pipeline
-        4. Execute Summary pipeline
+        3. Execute Hierarchical pipeline (if generate_chunks=True)
+        4. Execute Summary pipeline (if generate_summaries=True)
         """
         # Load configuration
         self.config = load_config(config_path)
@@ -265,7 +265,11 @@ def main():
     """Main entry point for the ingestion pipeline orchestrator."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="PDF Data Ingestion Pipeline Orchestrator")
+    parser = argparse.ArgumentParser(
+        description="PDF Data Ingestion Pipeline Orchestrator. "
+                    "Use --chunks to run only chunking, --summaries to run only summaries, "
+                    "or neither to run both."
+    )
     parser.add_argument(
         "--pdf",
         type=str,
@@ -291,15 +295,19 @@ def main():
         action="store_true",
         help="Split markdown into sections before chunking (default: use raw markdown directly)"
     )
-    parser.add_argument(
-        "--no-summaries",
+    
+    # Create mutually exclusive group for pipeline selection
+    # Required only when processing PDFs (not for debug flags)
+    pipeline_group = parser.add_mutually_exclusive_group(required=False)
+    pipeline_group.add_argument(
+        "--chunks",
         action="store_true",
-        help="Skip summary generation (only run hierarchical chunking)"
+        help="Run only hierarchical chunking pipeline"
     )
-    parser.add_argument(
-        "--no-chunks",
+    pipeline_group.add_argument(
+        "--summaries",
         action="store_true",
-        help="Skip hierarchical chunking (only run summary generation)"
+        help="Run only summary generation pipeline"
     )
     
     args = parser.parse_args()
@@ -321,12 +329,20 @@ def main():
     if not args.pdf:
         parser.error("--pdf is required unless --print-existing-chunks or --print-store-info is used")
     
+    # Validate that exactly one pipeline is selected (required when processing PDFs)
+    if not args.chunks and not args.summaries:
+        parser.error("Either --chunks or --summaries must be specified when processing a PDF.")
+    
+    # Determine which pipeline to run (mutually exclusive)
+    generate_chunks = args.chunks
+    generate_summaries = args.summaries
+    
     # Process PDF
     pipeline.process_pdf(
         pdf_path=args.pdf,
         claim_id=args.claim_id,
-        generate_chunks=not args.no_chunks,
-        generate_summaries=not args.no_summaries,
+        generate_chunks=generate_chunks,
+        generate_summaries=generate_summaries,
         split_into_sections=args.split_into_sections
     )
 
