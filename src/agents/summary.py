@@ -12,6 +12,7 @@ from langchain.agents import create_agent
 
 from src.utils.config_loader import load_config
 from src.retrieval.summaries_retriever import SummariesRetriever
+from src.agents.response_collector import ResponseCollector
 
 
 class SummaryAgent:
@@ -25,16 +26,20 @@ class SummaryAgent:
     but can fall back to chunk-level summaries when more detail is needed.
     """
     
-    def __init__(self, config_path: str = "config/config.yaml"):
+    def __init__(self, config_path: str = "config/config.yaml", collector: ResponseCollector = None):
         """
         Initialize Summary Agent.
         
         Args:
             config_path: Path to configuration file
+            collector: Optional ResponseCollector instance for tracking responses
         """
         # Load configuration
         self.config = load_config(config_path)
         llm_config = self.config.get('llm', {})
+        
+        # Store collector
+        self.collector = collector
         
         # Initialize summaries retriever
         self.retriever = SummariesRetriever(config_path=config_path)
@@ -59,7 +64,7 @@ class SummaryAgent:
         retrieval_config = self.config.get('retrieval', {})
         default_top_k = retrieval_config.get('default_top_k', 5)
         
-        # Create the retrieve_context tool using closure to access self.retriever
+        # Create the retrieve_context tool using closure to access self.retriever and self.collector
         # This tool retrieves document-level summaries (high-level overviews)
         @tool
         def retrieve_context(query: str) -> str:
@@ -78,6 +83,11 @@ class SummaryAgent:
                 
                 # Combine all retrieved summaries into a single string
                 context_parts = [result['text'] for result in results]
+                
+                # Collect contexts if collector is available
+                if self.collector:
+                    self.collector.collect_contexts(context_parts)
+                
                 context = "\n\n".join(context_parts)
                 return context if context else "No relevant document summaries found."
             except Exception as e:
@@ -102,6 +112,11 @@ class SummaryAgent:
                 
                 # Combine all retrieved summaries into a single string
                 context_parts = [result['text'] for result in results]
+                
+                # Collect contexts if collector is available
+                if self.collector:
+                    self.collector.collect_contexts(context_parts)
+                
                 context = "\n\n".join(context_parts)
                 return context if context else "No relevant chunk summaries found."
             except Exception as e:
@@ -178,12 +193,27 @@ After retrieving context:
         Returns:
             The agent's answer to the query
         """
+        # Reset collector if available
+        if self.collector:
+            self.collector.reset()
+        
+        result = ""
         # Invoke the agent with the user query
         for event in self.agent.stream(
             {"messages": [{"role": "user", "content": query}]},
             stream_mode="values",
         ):
-            event["messages"][-1].pretty_print()
+            result = event["messages"][-1]
+            result.pretty_print()
+            if hasattr(result, 'content') and result.content:
+                if not hasattr(result, 'tool_calls') or not result.tool_calls:
+                    result_content = str(result.content)
+                    result = result_content
+                    # Collect response if collector is available
+                    if self.collector:
+                        self.collector.collect_response(result_content)
+        
+        return result
     
     def get_agent(self):
         """Get the underlying agent."""

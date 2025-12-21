@@ -50,7 +50,7 @@ def main():
             print(f"\nAnalyzing query: '{query}'")
             print("-" * 60)
             
-            router.route(query)
+            router.answer_with_contexts(query)
             
             print("\n" + "-" * 60)
             

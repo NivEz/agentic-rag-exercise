@@ -14,6 +14,7 @@ from langchain.agents import create_agent
 from src.utils.config_loader import load_config
 from src.agents.needle import NeedleAgent
 from src.agents.summary import SummaryAgent
+from src.agents.response_collector import ResponseCollector
 
 
 class RetrievalStrategy(str, Enum):
@@ -39,11 +40,14 @@ class QueryRouterAgent:
         self.config = load_config(config_path)
         llm_config = self.config.get('llm', {})
         
-        # Initialize NeedleAgent instance
-        self.needle_agent = NeedleAgent(config_path=config_path)
+        # Create a shared collector for sub-agents (questions are asked one by one)
+        self.collector = ResponseCollector()
         
-        # Initialize SummaryAgent instance
-        self.summary_agent = SummaryAgent(config_path=config_path)
+        # Initialize NeedleAgent instance with shared collector
+        self.needle_agent = NeedleAgent(config_path=config_path, collector=self.collector)
+        
+        # Initialize SummaryAgent instance with shared collector
+        self.summary_agent = SummaryAgent(config_path=config_path, collector=self.collector)
         
         # Initialize LLM for the agent
         import os
@@ -204,3 +208,38 @@ Analyze the query carefully and route accordingly."""
             # If no tool was called and we found an unclear message, print it
             if not tool_called and unclear_message:
                 print("Query is not clear, please provide more information")
+
+    def answer_with_contexts(self, query: str) -> dict:
+        """
+        Answer a query via the router and return both the answer and retrieved contexts.
+        
+        Args:
+            query: The user's query string
+            
+        Returns:
+            Dictionary with 'text_response' (str) and 'contexts' (list[str]) keys
+        """
+        # Reset the shared collector for a new query
+        self.collector.reset()
+        
+        # Invoke the router agent
+        response = self.agent.invoke({"messages": [{"role": "user", "content": query}]})
+        
+        # Get results from the shared collector (whichever sub-agent was used will have populated it)
+        result = self.collector.get_result()
+        
+        # If no contexts were collected, the router might not have called a tool
+        if not result['contexts']:
+            # Try to extract answer from router response
+            router_answer = ""
+            if response and "messages" in response:
+                for message in reversed(response["messages"]):
+                    if hasattr(message, "content") and message.content:
+                        if not hasattr(message, "tool_calls") or not message.tool_calls:
+                            router_answer = str(message.content)
+                            break
+            
+            if router_answer:
+                result['text_response'] = router_answer
+        
+        return result
