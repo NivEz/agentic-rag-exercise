@@ -124,4 +124,32 @@ dataset = [
         'expected_tool': 'route_to_needle',
         'ground_truth': 'According to traffic camera footage analysis, the Ford F-150 was traveling at approximately 45 mph as it approached the intersection, which exceeds the posted speed limit of 35 mph for that section of Oak Avenue.'
     },
+    
+    # Summary questions (5 questions that should route to summary agent)
+    # These questions don't have regex patterns since they require comprehensive answers
+    {
+        'question': 'What is this insurance claim report about?',
+        'expected_tool': 'route_to_summaries',
+        'ground_truth': 'This insurance claim report is about a multi-vehicle accident that occurred on October 15, 2024, at the intersection of Main Street and Oak Avenue in Springfield. The incident involved three vehicles and resulted in property damage and injuries. The claimant, James Robert Mitchell, filed a comprehensive claim seeking compensation for vehicle damage, medical expenses, lost wages, and pain and suffering, with a total proposed settlement of $134,650.'
+    },
+    {
+        'question': 'Give me an overview of the main events described in the document.',
+        'expected_tool': 'route_to_summaries',
+        'ground_truth': 'The document describes a vehicular accident at an intersection involving three vehicles - a 2022 Honda Accord, a 2019 Ford F-150, and a 2020 Toyota Camry. The Ford F-150 ran a red light while speeding and struck the Honda Accord, which then caused secondary damage to the Toyota Camry. The accident occurred during rainy conditions. The claimant sustained injuries and significant vehicle damage. A comprehensive investigation was conducted including police reports, witness statements, medical evaluations, and traffic camera footage analysis to determine liability and compensation.'
+    },
+    {
+        'question': 'Describe the general timeline of events from the accident to the claim resolution.',
+        'expected_tool': 'route_to_summaries',
+        'ground_truth': 'The timeline begins with the accident on October 15, 2024 at 2:47 PM. Police filed their report the same day. The claimant was transported to Springfield General Hospital for treatment and discharged the following day. On October 16, 2024, the claimant\'s statement was taken by the adjuster. Vehicle inspection was conducted on October 17, 2024. Since then, the claimant has been receiving ongoing medical treatment including physical therapy and specialist consultations. The comprehensive claim report was prepared on December 21, 2025, proposing a total settlement of $134,650.'
+    },
+    {
+        'question': 'What are the main categories of compensation in this claim?',
+        'expected_tool': 'route_to_summaries',
+        'ground_truth': 'The claim includes four main categories of compensation: (1) Property Damage covering vehicle total loss, personal property damage, towing/storage, and rental vehicle expenses; (2) Medical Expenses including both past and future medical treatment costs; (3) Lost Wages covering past missed work and projected future lost income; and (4) Pain and Suffering for physical pain, emotional distress, and diminished quality of life.'
+    },
+    {
+        'question': 'Tell me about the evidence used to determine fault in this case.',
+        'expected_tool': 'route_to_summaries',
+        'ground_truth': 'Multiple types of evidence were used to determine fault: Traffic camera footage showing the Ford F-150 running a red light and speeding; three independent witness statements all confirming the pickup truck ran the red light; the official police report documenting vehicle positions and traffic signal status; physical evidence from vehicle damage patterns; and expert accident reconstruction analysis. All evidence consistently pointed to the Ford F-150 driver as primarily liable for failing to yield at a traffic signal while operating at an unsafe speed for conditions.'
+    },
 ]

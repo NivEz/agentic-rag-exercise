@@ -100,7 +100,7 @@ def main():
     # Loop through each question
     for i, item in enumerate(dataset, 1):
         question = item['question']
-        pattern = item['regex_pattern']
+        pattern = item.get('regex_pattern')  # Optional
         expected_tool = item['expected_tool']
         
         print(f"\n[{i}/{len(dataset)}] {question}")
@@ -122,16 +122,19 @@ def main():
         # Display which tool was used
         print(f"{routing_status} Tool: {tool} (expected: {expected_tool})")
         
-        # Check if pattern matches
-        match = re.search(pattern, answer, re.IGNORECASE)
-        
-        if match:
-            print(f"✓ PASS - Found: {match.group(0)}")
-            passed += 1
+        # Check if pattern matches (only if pattern is provided)
+        if pattern:
+            match = re.search(pattern, answer, re.IGNORECASE)
+            
+            if match:
+                print(f"✓ PASS - Found: {match.group(0)}")
+                passed += 1
+            else:
+                print(f"✗ FAIL - Pattern not found in answer")
+                print(f"  Answer: {answer[:100]}...")
+                failed += 1
         else:
-            print(f"✗ FAIL - Pattern not found in answer")
-            print(f"  Answer: {answer[:100]}...")
-            failed += 1
+            print(f"⊘ No regex validation (summary question)")
         
         # Run LLM judge if ground_truth is available
         if 'ground_truth' in item:
@@ -143,10 +146,15 @@ def main():
             llm_judge_count += 1
     
     # Print summary
+    regex_total = passed + failed
     print(f"\n{'='*60}")
     print(f"ANSWER VALIDATION (Regex):")
-    print(f"  Passed: {passed}/{len(dataset)} ({passed/len(dataset)*100:.1f}%)")
-    print(f"  Failed: {failed}/{len(dataset)}")
+    if regex_total > 0:
+        print(f"  Passed: {passed}/{regex_total} ({passed/regex_total*100:.1f}%)")
+        print(f"  Failed: {failed}/{regex_total}")
+        print(f"  Skipped: {len(dataset) - regex_total} (no pattern)")
+    else:
+        print(f"  No regex validations performed")
     print(f"\nROUTING VALIDATION:")
     print(f"  Correct: {routing_correct}/{len(dataset)} ({routing_correct/len(dataset)*100:.1f}%)")
     print(f"  Incorrect: {routing_incorrect}/{len(dataset)}")
