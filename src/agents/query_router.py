@@ -227,9 +227,19 @@ Analyze the query carefully and route accordingly."""
         # Invoke the router agent
         response = self.agent.invoke({"messages": [{"role": "user", "content": query}]})
         
+        # Determine which tool was called by examining the response
+        if response and "messages" in response:
+            for message in response["messages"]:
+                if hasattr(message, "tool_calls") and message.tool_calls:
+                    for tool_call in message.tool_calls:
+                        tool_name = tool_call.get("name", "")
+                        if tool_name:
+                            self.collector.set_tool(tool_name)
+                    break
+        
         # Get results from the shared collector (whichever sub-agent was used will have populated it)
         result = self.collector.get_result()
-        
+
         # If no contexts were collected, the router might not have called a tool
         if not result['contexts']:
             # Try to extract answer from router response
@@ -244,4 +254,5 @@ Analyze the query carefully and route accordingly."""
             
             if router_answer:
                 result['text_response'] = router_answer
+                
         return result
