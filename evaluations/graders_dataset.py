@@ -1,6 +1,7 @@
 """
 Evaluation dataset with 20 factual questions from Insurance_Claim_Report_Comprehensive.pdf
 Each entry contains question, regex pattern, and expected tool to be called.
+Some of the questions have ground truth answers that an LLM-as-judge can use to evaluate the answer quality.
 """
 
 dataset = [
@@ -8,12 +9,14 @@ dataset = [
     {
         'question': 'What is the total amount of past medical expenses incurred by the claimant?',
         'regex_pattern': r'\$?\s*28,?450',
-        'expected_tool': 'route_to_needle'
+        'expected_tool': 'route_to_needle',
+        'ground_truth': 'The total amount of past medical expenses incurred by the claimant is $28,450. This includes emergency room services, hospital admission, diagnostic imaging (CT scans and MRI studies), physician consultations, and initial treatment.'
     },
     {
         'question': 'How many miles were on the odometer of the claimant\'s vehicle at the time of the accident?',
         'regex_pattern': r'18,?450\s*(miles)?',
-        'expected_tool': 'route_to_needle'
+        'expected_tool': 'route_to_needle',
+        'ground_truth': 'The claimant\'s 2022 Honda Accord had approximately 18,450 miles on the odometer at the time of the accident.'
     },
     {
         'question': 'What is the temperature in degrees Fahrenheit at the time of the accident?',
@@ -35,7 +38,8 @@ dataset = [
     {
         'question': 'What is the exact time of the accident in 12-hour format with AM/PM?',
         'regex_pattern': r'2:47\s*(PM|p\.m\.|pm)',
-        'expected_tool': 'route_to_needle'
+        'expected_tool': 'route_to_needle',
+        'ground_truth': 'The accident occurred at approximately 2:47 PM Central Standard Time on October 15, 2024.'
     },
     {
         'question': 'What date was the police report filed?',
@@ -57,12 +61,14 @@ dataset = [
     {
         'question': 'What is the policy number for the claimant\'s insurance?',
         'regex_pattern': r'POL-8472-9384-2931',
-        'expected_tool': 'route_to_needle'
+        'expected_tool': 'route_to_needle',
+        'ground_truth': 'The policy number for the claimant\'s insurance is POL-8472-9384-2931 with Metropolitan Insurance Group.'
     },
     {
         'question': 'What is the badge number of the police officer who filed the report?',
         'regex_pattern': r'\b8472\b',
-        'expected_tool': 'route_to_needle'
+        'expected_tool': 'route_to_needle',
+        'ground_truth': 'The police report was filed by Detective Michael Chen, Badge Number 8472, from the Springfield Police Department Traffic Division.'
     },
     {
         'question': 'What is the official police report number?',
@@ -79,7 +85,8 @@ dataset = [
     {
         'question': 'At what intersection did the accident occur?',
         'regex_pattern': r'Main\s+Street\s+and\s+Oak\s+Avenue',
-        'expected_tool': 'route_to_needle'
+        'expected_tool': 'route_to_needle',
+        'ground_truth': 'The accident occurred at the intersection of Main Street and Oak Avenue in downtown Springfield, Illinois.'
     },
     {
         'question': 'What is the color description of the claimant\'s vehicle?',
@@ -91,17 +98,20 @@ dataset = [
     {
         'question': 'What is the total proposed settlement amount for this claim?',
         'regex_pattern': r'\$?\s*134,?650',
-        'expected_tool': 'route_to_needle'
+        'expected_tool': 'route_to_needle',
+        'ground_truth': 'The total proposed settlement amount is $134,650. This includes property damage ($28,000), medical expenses ($48,450 - past and future), lost wages ($13,200 - past and future), and pain and suffering ($45,000).'
     },
     {
         'question': 'What is the name of the assigned claims adjuster?',
         'regex_pattern': r'Sarah\s+(Elizabeth\s+)?Thompson',
-        'expected_tool': 'route_to_needle'
+        'expected_tool': 'route_to_needle',
+        'ground_truth': 'The assigned claims adjuster is Sarah Elizabeth Thompson, Senior Claims Adjuster at Metropolitan Insurance Group.'
     },
     {
         'question': 'What is the claimant\'s occupation?',
         'regex_pattern': r'construction\s+supervisor',
-        'expected_tool': 'route_to_needle'
+        'expected_tool': 'route_to_needle',
+        'ground_truth': 'The claimant, James Robert Mitchell, works as a construction supervisor and earns $1,200 per week.'
     },
     {
         'question': 'How many weeks of past lost wages is the claimant claiming?',
@@ -111,6 +121,7 @@ dataset = [
     {
         'question': 'At what speed was the Ford F-150 traveling when approaching the intersection?',
         'regex_pattern': r'(45|forty-five)\s*(mph|miles per hour)',
-        'expected_tool': 'route_to_needle'
+        'expected_tool': 'route_to_needle',
+        'ground_truth': 'According to traffic camera footage analysis, the Ford F-150 was traveling at approximately 45 mph as it approached the intersection, which exceeds the posted speed limit of 35 mph for that section of Oak Avenue.'
     },
 ]
