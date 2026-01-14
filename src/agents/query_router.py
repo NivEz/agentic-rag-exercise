@@ -239,9 +239,9 @@ Analyze the query carefully and route accordingly."""
                     if hasattr(message, "content") and message.content:
                         if not hasattr(message, "tool_calls") or not message.tool_calls:
                             router_answer = str(message.content)
+                            print("Query is not clear, please provide more information")
                             break
             
             if router_answer:
                 result['text_response'] = router_answer
-        
         return result

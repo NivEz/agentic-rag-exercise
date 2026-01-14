@@ -125,7 +125,6 @@ Always use the retrieve_context tool before answering any question."""
                     # Collect response if collector is available
                     if self.collector:
                         self.collector.collect_response(result_content)
-
         return result
     
     def get_agent(self):
