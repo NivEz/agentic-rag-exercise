@@ -18,6 +18,53 @@ from src.agents.query_router import QueryRouterAgent
 load_dotenv()
 
 
+def human_eval(question: str, answer: str) -> dict:
+    """
+    Prompt human evaluator for score and feedback.
+    
+    Args:
+        question: The question asked
+        answer: Generated answer from RAG system
+        
+    Returns:
+        Dictionary with 'score' (1-10) and 'feedback' (string)
+    """
+    print("\n" + "="*60)
+    print("👤 HUMAN EVALUATION REQUIRED")
+    print("="*60)
+    print(f"\nQuestion: {question}")
+    print(f"\nAnswer: {answer}")
+    print("\n" + "-"*60)
+    
+    # Get score
+    while True:
+        try:
+            score_input = input("Enter your score (1-10): ").strip()
+            score = int(score_input)
+            if 1 <= score <= 10:
+                break
+            else:
+                print("❌ Please enter a number between 1 and 10.")
+        except ValueError:
+            print("❌ Invalid input. Please enter a number between 1 and 10.")
+    
+    # Get feedback (required)
+    print("\nEnter your feedback (required):")
+    while True:
+        feedback = input("Feedback: ").strip()
+        if feedback:
+            break
+        else:
+            print("❌ Feedback is required. Please provide your evaluation feedback.")
+    
+    print("="*60 + "\n")
+    
+    return {
+        'score': score,
+        'feedback': feedback
+    }
+
+
 def llm_judge(question: str, answer: str, ground_truth: str) -> dict:
     """
     Use LLM as a judge to evaluate answer quality.
@@ -96,6 +143,8 @@ def main():
     routing_incorrect = 0
     llm_judge_scores = []
     llm_judge_count = 0
+    human_eval_scores = []
+    human_eval_count = 0
     
     # Loop through each question
     for i, item in enumerate(dataset, 1):
@@ -144,6 +193,13 @@ def main():
             print(f"   Feedback: {judge_result['feedback']}")
             llm_judge_scores.append(judge_result['score'])
             llm_judge_count += 1
+        
+        # Run human evaluation if marked for human eval
+        if item.get('human_eval', False):
+            eval_result = human_eval(question, answer)
+            print(f"✓ Human evaluation recorded: {eval_result['score']}/10")
+            human_eval_scores.append(eval_result['score'])
+            human_eval_count += 1
     
     # Print summary
     regex_total = passed + failed
@@ -167,6 +223,18 @@ def main():
         print(f"  Score distribution:")
         for score in range(1, 11):
             count = llm_judge_scores.count(score)
+            if count > 0:
+                bar = "█" * count
+                print(f"    {score:2d}: {bar} ({count})")
+    
+    if human_eval_count > 0:
+        avg_score = sum(human_eval_scores) / len(human_eval_scores)
+        print(f"\nHUMAN EVALUATION:")
+        print(f"  Questions evaluated: {human_eval_count}")
+        print(f"  Average score: {avg_score:.1f}/10")
+        print(f"  Score distribution:")
+        for score in range(1, 11):
+            count = human_eval_scores.count(score)
             if count > 0:
                 bar = "█" * count
                 print(f"    {score:2d}: {bar} ({count})")

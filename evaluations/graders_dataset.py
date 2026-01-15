@@ -10,7 +10,8 @@ dataset = [
         'question': 'What is the total amount of past medical expenses incurred by the claimant?',
         'regex_pattern': r'\$?\s*28,?450',
         'expected_tool': 'route_to_needle',
-        'ground_truth': 'The total amount of past medical expenses incurred by the claimant is $28,450. This includes emergency room services, hospital admission, diagnostic imaging (CT scans and MRI studies), physician consultations, and initial treatment.'
+        'ground_truth': 'The total amount of past medical expenses incurred by the claimant is $28,450. This includes emergency room services, hospital admission, diagnostic imaging (CT scans and MRI studies), physician consultations, and initial treatment.',
+        'human_eval': True
     },
     {
         'question': 'How many miles were on the odometer of the claimant\'s vehicle at the time of the accident?',
@@ -62,7 +63,8 @@ dataset = [
         'question': 'What is the policy number for the claimant\'s insurance?',
         'regex_pattern': r'POL-8472-9384-2931',
         'expected_tool': 'route_to_needle',
-        'ground_truth': 'The policy number for the claimant\'s insurance is POL-8472-9384-2931 with Metropolitan Insurance Group.'
+        'ground_truth': 'The policy number for the claimant\'s insurance is POL-8472-9384-2931 with Metropolitan Insurance Group.',
+        'human_eval': True
     },
     {
         'question': 'What is the badge number of the police officer who filed the report?',
@@ -99,7 +101,8 @@ dataset = [
         'question': 'What is the total proposed settlement amount for this claim?',
         'regex_pattern': r'\$?\s*134,?650',
         'expected_tool': 'route_to_needle',
-        'ground_truth': 'The total proposed settlement amount is $134,650. This includes property damage ($28,000), medical expenses ($48,450 - past and future), lost wages ($13,200 - past and future), and pain and suffering ($45,000).'
+        'ground_truth': 'The total proposed settlement amount is $134,650. This includes property damage ($28,000), medical expenses ($48,450 - past and future), lost wages ($13,200 - past and future), and pain and suffering ($45,000).',
+        'human_eval': True
     },
     {
         'question': 'What is the name of the assigned claims adjuster?',
@@ -130,12 +133,14 @@ dataset = [
     {
         'question': 'What is this insurance claim report about?',
         'expected_tool': 'route_to_summaries',
-        'ground_truth': 'This insurance claim report is about a multi-vehicle accident that occurred on October 15, 2024, at the intersection of Main Street and Oak Avenue in Springfield. The incident involved three vehicles and resulted in property damage and injuries. The claimant, James Robert Mitchell, filed a comprehensive claim seeking compensation for vehicle damage, medical expenses, lost wages, and pain and suffering, with a total proposed settlement of $134,650.'
+        'ground_truth': 'This insurance claim report is about a multi-vehicle accident that occurred on October 15, 2024, at the intersection of Main Street and Oak Avenue in Springfield. The incident involved three vehicles and resulted in property damage and injuries. The claimant, James Robert Mitchell, filed a comprehensive claim seeking compensation for vehicle damage, medical expenses, lost wages, and pain and suffering, with a total proposed settlement of $134,650.',
+        'human_eval': True
     },
     {
         'question': 'Give me an overview of the main events described in the document.',
         'expected_tool': 'route_to_summaries',
-        'ground_truth': 'The document describes a vehicular accident at an intersection involving three vehicles - a 2022 Honda Accord, a 2019 Ford F-150, and a 2020 Toyota Camry. The Ford F-150 ran a red light while speeding and struck the Honda Accord, which then caused secondary damage to the Toyota Camry. The accident occurred during rainy conditions. The claimant sustained injuries and significant vehicle damage. A comprehensive investigation was conducted including police reports, witness statements, medical evaluations, and traffic camera footage analysis to determine liability and compensation.'
+        'ground_truth': 'The document describes a vehicular accident at an intersection involving three vehicles - a 2022 Honda Accord, a 2019 Ford F-150, and a 2020 Toyota Camry. The Ford F-150 ran a red light while speeding and struck the Honda Accord, which then caused secondary damage to the Toyota Camry. The accident occurred during rainy conditions. The claimant sustained injuries and significant vehicle damage. A comprehensive investigation was conducted including police reports, witness statements, medical evaluations, and traffic camera footage analysis to determine liability and compensation.',
+        'human_eval': True
     },
     {
         'question': 'Describe the general timeline of events from the accident to the claim resolution.',
