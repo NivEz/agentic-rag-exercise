@@ -103,7 +103,11 @@ All agents use LangChain's agent framework with tool calling to retrieve context
 
 ### 4. Evaluation
 
-The system uses **RAGAS** (Retrieval-Augmented Generation Assessment) to evaluate performance:
+The system provides two evaluation approaches:
+
+#### RAGAS Evaluation
+
+Uses **RAGAS** (Retrieval-Augmented Generation Assessment) framework for automated evaluation:
 
 -   **Metrics**: answer correctness, faithfulness, context precision
 -   **Dataset**: Pre-defined questions with ground truth answers (`evaluations/dataset.py`)
@@ -112,6 +116,43 @@ The system uses **RAGAS** (Retrieval-Augmented Generation Assessment) to evaluat
     2. Retrieves contexts and generates answers
     3. RAGAS evaluates answers against ground truth
     4. Results saved to CSV files with timestamps
+
+#### Multi-Grader Evaluation
+
+Comprehensive evaluation system using multiple grader types (`evaluations/graders.py`):
+
+**1. Code-Based Grader (Regex Pattern Matching)**
+
+-   Validates factual answers using regex patterns
+-   Tests 20 questions requiring specific facts (numbers, dates, names, IDs)
+-   Provides immediate pass/fail results with extracted values
+-   Best for verifying exact information retrieval
+
+**2. LLM-as-Judge (Gemini 2.5 Flash)**
+
+-   Evaluates answer quality and completeness using LLM
+-   Assesses 15 questions with ground truth references
+-   Provides scores (1-10) and detailed feedback
+-   Evaluates both factual accuracy and comprehensiveness
+
+**3. Human-in-the-Loop**
+
+-   Interactive evaluation for 5 selected questions (3 needle + 2 summary)
+-   Requires human evaluator to provide score (1-10) and feedback
+-   Captures subjective quality aspects (clarity, relevance, completeness)
+-   Essential for validating answer quality from user perspective
+
+**4. Routing Validation**
+
+-   Tests if queries are routed to the correct agent (needle vs summary)
+-   Validates 25 questions with expected routing strategies
+-   Ensures router agent makes appropriate decisions
+
+**Dataset**: 25 questions (`evaluations/graders_dataset.py`) with regex patterns, ground truth, and expected routing
+
+**Output**: CSV files with detailed results and summary statistics per grader type
+
+![Graders Evaluation Results](docs/graders_results.png)
 
 ## Setup
 
@@ -153,6 +194,7 @@ Create a `.env` file in the project root with your OpenAI API key:
 
 ```
 OPENAI_API_KEY=your_api_key_here
+GOOGLE_API_KEY=your_api_key_here
 ```
 
 ## Usage
@@ -197,13 +239,30 @@ The system will prompt you for queries, route them to the appropriate agent, and
 
 ### Evaluation
 
-Run the evaluation suite to assess system performance:
+The system provides two evaluation approaches:
+
+**RAGAS Evaluation (Automated):**
 
 ```bash
 python evaluations/main.py
 ```
 
-This processes a predefined dataset, generates answers using the Query Router Agent, evaluates them with RAGAS metrics, and saves results to CSV files in `evaluations/results/`.
+Processes 10 questions, evaluates with RAGAS metrics (answer correctness, faithfulness, context precision), and saves results to CSV.
+
+**Multi-Grader Evaluation (Comprehensive):**
+
+```bash
+python evaluations/graders.py
+```
+
+Evaluates 25 questions using four validation methods:
+
+-   Regex pattern matching for factual accuracy
+-   LLM-as-judge for answer quality and completeness
+-   Human-in-the-loop for subjective evaluation (requires interactive input)
+-   Routing validation to ensure correct agent selection
+
+Results include detailed per-question scores and summary statistics, saved to `evaluations/results/grader_results_*.csv`.
 
 ## Configuration
 
